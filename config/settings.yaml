@@ -27,6 +27,14 @@ sheet:
 
 retention:
   items_archive_after_days: 60
+  # Platforms that limit how long their API data may be kept. Rows from these sources
+  # are purged (text and numbers blanked, status set to `purged`) at this age, never
+  # archived — archiving would keep the data indefinitely.
+  #   youtube: YouTube API Services Developer Policies allow non-authorised API data,
+  #   including comment text and statistics, to be stored for no more than 30 calendar
+  #   days before it is deleted or refreshed. Checked 2026-11-25.
+  api_data_max_days:
+    youtube: 30
 
 run:
   # South Africa keeps one offset all year, so a fixed +02:00 is exact and needs no

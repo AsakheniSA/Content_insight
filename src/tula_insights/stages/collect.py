@@ -17,7 +17,13 @@ import os
 import uuid
 from dataclasses import dataclass, field
 
-from ..budget import SERVICE_MESSAGES, SERVICE_WEB_SEARCH, UsageLedger
+from ..budget import (
+    SERVICE_MESSAGES,
+    SERVICE_WEB_SEARCH,
+    SERVICE_YOUTUBE_SEARCH,
+    SERVICE_YOUTUBE_UNITS,
+    UsageLedger,
+)
 from ..collectors.base import AfterWrite, CollectorError, RunContext
 from ..collectors.registry import build_collector, plan_sources
 from ..config import AppConfig, ConfigError
@@ -78,6 +84,7 @@ def run(
 
     store = _open_store(config, dry_run=dry_run, result=result)
     ledger = UsageLedger.from_store(config, store)
+    _enforce_storage_limits(store, config, result, dry_run=dry_run)
 
     llm, search = _build_search(config, result)
 
@@ -183,6 +190,31 @@ def _open_store(config: AppConfig, *, dry_run: bool, result: CollectResult) -> S
         return None
 
 
+def _enforce_storage_limits(
+    store: SheetStore | None, config: AppConfig, result: CollectResult, *, dry_run: bool
+) -> None:
+    """Purge rows past a platform's storage limit, before collecting more.
+
+    Runs first so that the limit is enforced on every run, even one whose collection
+    later fails. A purge failure is reported loudly but does not stop collection.
+    """
+    if store is None or dry_run:
+        return
+    from .retention import purge_expired
+
+    try:
+        purged = purge_expired(store, config)
+    except Exception as error:
+        log.warning("collect.purge_failed", extra={"error_type": type(error).__name__})
+        result.warnings.append(
+            f"Could not enforce platform storage limits this run: {error}. "
+            f"Expired platform data may still be in the items tab."
+        )
+        return
+    if purged:
+        result.metrics["retention.rows_purged"] = purged
+
+
 def _build_search(
     config: AppConfig, result: CollectResult
 ) -> tuple[LlmClient | None, ClaudeWebSearchProvider | None]:
@@ -266,6 +298,8 @@ def _record_run(
         api_calls_by_service={
             SERVICE_WEB_SEARCH: result.searches,
             SERVICE_MESSAGES: sum((usage.calls_by_model if usage else {}).values()),
+            SERVICE_YOUTUBE_SEARCH: result.metrics.get("youtube.searches", 0),
+            SERVICE_YOUTUBE_UNITS: result.metrics.get("youtube.units", 0),
         },
         actions_run_url=_actions_run_url(),
         git_sha=os.environ.get("GITHUB_SHA", "")[:12],

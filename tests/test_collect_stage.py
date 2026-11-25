@@ -253,3 +253,33 @@ def test_a_failed_write_leaves_manual_rows_unprocessed(config, store, wired, mon
     with pytest.raises(SheetStoreError):
         stage.run(config, source="manual")
     assert store.read_rows("manual_submissions")[0]["processed"] == ""
+
+
+# --- storage limits ------------------------------------------------------------------
+
+
+def _old_youtube_row(store, days=45):
+    from datetime import timedelta
+
+    from tula_insights.utils.clock import now_utc
+
+    store.append_rows("items", [{
+        "item_id": "yt-old", "source": "youtube", "title": "old comment text",
+        "collected_at": (now_utc() - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "status": "classified",
+    }])
+
+
+def test_a_real_run_purges_expired_youtube_rows_first(config, store, wired):
+    _old_youtube_row(store)
+    outcome = stage.run(config, source="manual")
+    old = next(r for r in store.read_rows("items") if r["item_id"] == "yt-old")
+    assert old["status"] == "purged" and old["title"] == ""
+    assert outcome.metrics["retention.rows_purged"] == 1
+
+
+def test_a_dry_run_purges_nothing(config, store, wired):
+    _old_youtube_row(store)
+    stage.run(config, source="manual", dry_run=True)
+    old = next(r for r in store.read_rows("items") if r["item_id"] == "yt-old")
+    assert old["title"] == "old comment text"

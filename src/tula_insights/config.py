@@ -414,6 +414,17 @@ class SheetSettings(Base):
 
 class RetentionSettings(Base):
     items_archive_after_days: int = Field(gt=0)
+    #: Source name -> the longest its platform lets us keep what its API returned.
+    #: Rows from these sources are purged at that age instead of being archived.
+    api_data_max_days: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("api_data_max_days")
+    @classmethod
+    def _positive(cls, value: dict[str, int]) -> dict[str, int]:
+        for source, days in value.items():
+            if days <= 0:
+                raise ValueError(f"api_data_max_days.{source} must be a positive number of days")
+        return value
 
 
 class RunSettings(Base):

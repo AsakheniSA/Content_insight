@@ -30,6 +30,7 @@ log = get_logger(__name__)
 SERVICE_WEB_SEARCH = "claude_web_search"
 SERVICE_MESSAGES = "claude_messages"
 SERVICE_YOUTUBE_SEARCH = "youtube_search"
+SERVICE_YOUTUBE_UNITS = "youtube_units"
 
 
 @dataclass
@@ -172,6 +173,22 @@ class UsageLedger:
 
     def record_web_searches(self, count: int) -> None:
         self.searches_this_run += max(0, count)
+
+    def remaining_youtube_searches(self) -> int:
+        """YouTube search.list calls still allowed today and this month."""
+        budget = self.config.budget
+        used_today = self.spent.youtube_searches_today + self.youtube_searches_this_run
+        used_month = self.spent.youtube_searches_this_month + self.youtube_searches_this_run
+        return max(
+            0,
+            min(
+                budget.daily_caps.youtube_searches - used_today,
+                budget.monthly_caps.youtube_searches - used_month,
+            ),
+        )
+
+    def record_youtube_searches(self, count: int) -> None:
+        self.youtube_searches_this_run += max(0, count)
 
     def note_skip(self, what: str, reason: str) -> None:
         message = f"{what}: {reason}"

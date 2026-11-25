@@ -85,26 +85,49 @@ sources:
         Find Reddit threads where pet owners ask questions or describe problems about:
         {category}.
 
-  # ---- stage 7 ---------------------------------------------------------------
+  # ---- brought forward from stage 7 ----------------------------------------
   - name: youtube
-    enabled: false
+    enabled: true
     description: >-
-      YouTube Data API v3. search.list for keyword sets (treated as scarce quota),
-      videos.list for view/like/comment counts, commentThreads.list for top-level
-      comments. Comments containing a question or pain point become items. No author
-      fields are stored.
+      YouTube Data API v3. search.list for keyword sets, videos.list for view, like and
+      comment counts, commentThreads.list for top-level comments. Comments that look
+      like a question or a problem become items. No author fields and no channel names
+      are stored. Rows are purged after 30 days (YouTube's storage limit — see
+      settings.yaml retention.api_data_max_days).
     regions: [za, intl]
     requests_per_minute: 60
     daily_request_cap: 400
     max_items_per_run: 300
     settings:
-      # Google's docs are inconsistent on search.list cost (100 units vs a separate
-      # 100-calls/day bucket), so search is capped conservatively and separately.
+      # Since June 2026 search.list has its own quota bucket of 100 calls a day, separate
+      # from the 10,000-unit pool for everything else. 50 leaves room for manual runs.
       daily_search_cap: 50
+      keyword_sets_per_run: 6
       max_videos_per_search: 10
       max_comments_per_video: 40
       comment_order: relevance
+      relevance_language: en
       min_comment_chars: 25
+      # A comment is kept if it has a "?" or one of these phrases. The classifier makes
+      # the real call; this only stops "great video!" from costing a classification.
+      question_cues:
+        - "how do i"
+        - "how can i"
+        - "how do you"
+        - "any advice"
+        - "any tips"
+        - "anyone know"
+        - "does anyone"
+        - "has anyone"
+        - "should i"
+        - "is it safe"
+        - "can i"
+        - "what do i"
+        - "help"
+        - "worried"
+        - "nervous"
+        - "scared"
+        - "struggling"
 
   - name: news_rss
     enabled: false

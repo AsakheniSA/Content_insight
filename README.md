@@ -8,7 +8,7 @@ Everything is stored in one Google Sheet. Everything runs on GitHub Actions. The
 paid service is the Claude API.
 
 > **Build status: stage 2 of 10 complete.** Scaffold, configuration, the Sheets schema
-> and discovery (general web search plus manual submissions) are in place. The classifier, scoring and feed stages land next —
+> and discovery (general web search, YouTube comments and manual submissions) are in place. The classifier, scoring and feed stages land next —
 > see [`IMPLEMENTATION_BRIEF.md`](IMPLEMENTATION_BRIEF.md) section 11 for the order, and
 > the [Build progress](#build-progress) table below for where things stand.
 
@@ -119,7 +119,18 @@ Create a key at `console.anthropic.com` and put it in `.env` as `ANTHROPIC_API_K
 An organisation admin must also **enable the web search tool in the Claude Console** —
 without it the discovery stages cannot run. Not needed until stage 2.
 
-### 4. Create the tabs
+### 4. YouTube Data API key
+
+In the same Google Cloud project: **APIs & Services → Library → YouTube Data API v3 →
+Enable**, then **Credentials → Create credentials → API key**. Edit the key and set
+**API restrictions → Restrict key → YouTube Data API v3**, so a leaked key cannot be
+used for anything else. Add it as `YOUTUBE_API_KEY` (in `.env` locally, and as a
+repository secret).
+
+### 5. Create the tabs
+
+The **Collect (manual)** workflow creates any missing tab itself on every run, so in
+Actions there is nothing to do. Locally:
 
 ```bash
 python scripts/setup_sheet.py --dry-run
@@ -154,7 +165,7 @@ python -m tula_insights collect --dry-run --log-format plain
 python -m tula_insights collect
 ```
 
-Add `--source web_questions` or `--source manual` to run just one.
+Add `--source web_questions`, `--source youtube` or `--source manual` to run just one.
 
 In Actions, use the **Collect (manual)** workflow (Actions → Collect (manual) → Run
 workflow). It is dispatch-only and defaults to a dry run; the scheduled pipeline that
@@ -261,12 +272,12 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 | # | Stage | Status |
 |---|---|---|
 | 1 | Scaffold, config, Sheets schema | **Done** |
-| 2 | Search collector + `SearchProvider` (`web_questions`, plus `manual` brought forward) | **Done** |
+| 2 | Search collector + `SearchProvider` (`web_questions`; `youtube` and `manual` brought forward from stage 7) | **Done** |
 | 3 | Classifier (Claude Haiku, batch + sync) | Next |
 | 4 | Dedupe + scoring | — |
 | 5 | Publish feed | — |
 | 6 | Full `pipeline.yml` | — |
-| 7 | `web_questions`, `youtube`, `news_rss`, `manual` | — |
+| 7 | `news_rss` (the rest landed in stage 2) | — |
 | 8 | Alerting, keep-alive, budget guardrails | — |
 | 9 | Web view on Vercel | — |
 | 10 | Full README (brief section 12) | — |
@@ -282,6 +293,16 @@ Recorded as they are designed in, not discovered later.
   25 November 2026). The Reddit Data API is out of scope (§13): commercial use needs a
   contract, and self-service access closed in November 2025. The `reddit_search` source
   is kept but disabled. **Reddit threads come in by hand** through `manual_submissions`.
+- **YouTube data may be kept for 30 days at most.** YouTube's Developer Policies allow
+  non-authorised API data — comment text, titles, view and like counts — to be stored
+  for no more than 30 calendar days. Every collect run first **purges** YouTube rows
+  older than that: their text and numbers are blanked and their status becomes
+  `purged`. They are never archived. The limit lives in `settings.yaml →
+  retention.api_data_max_days`. Insight evidence links to YouTube comments will need
+  the same treatment once insights exist (stage 4).
+- **YouTube search is the scarce quota.** Since June 2026 `search.list` has its own
+  bucket of 100 calls a day, separate from the 10,000-unit pool. The collector makes at
+  most 50 a day. Quota resets at midnight Pacific time.
 - **Search engagement signals are weak.** The search tool returns no view, vote or
   comment counts, so web items are scored on result position and on how often a page
   recurs across a run's queries.
@@ -298,8 +319,6 @@ Recorded as they are designed in, not discovered later.
 - **No Facebook or Instagram collectors.** The compliant path is the
   `manual_submissions` tab. Comments on Tula's own posts via Meta's official API are a
   possible later addition.
-- **YouTube search quota is scarce** and capped separately from other calls. Quota
-  resets at midnight Pacific.
 - **Google Sheets is the only store**, which assumes a single writer. The Actions
   concurrency group enforces that. Collectors append only their own source's rows, so
   parallel collection is safe.

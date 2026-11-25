@@ -15,7 +15,10 @@ from dataclasses import dataclass, field
 
 # --- status vocabularies -------------------------------------------------------------
 
-ITEM_STATUSES = ("new", "batch_pending", "classified", "irrelevant", "error")
+#: `purged` marks a row whose platform-supplied text and numbers were deleted to meet a
+#: platform's storage limit (YouTube allows 30 days). The row stays, so its insight
+#: keeps its evidence count, but it carries nothing the platform supplied.
+ITEM_STATUSES = ("new", "batch_pending", "classified", "irrelevant", "error", "purged")
 INSIGHT_STATUSES = ("active", "retired")
 FEED_STATUSES = ("served", "used", "rejected")
 RUN_STATUSES = ("running", "success", "partial", "failed")

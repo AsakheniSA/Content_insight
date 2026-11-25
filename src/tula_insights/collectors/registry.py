@@ -25,19 +25,26 @@ def _web_search(name: str) -> Callable[[RunContext], Collector]:
     return build
 
 
+def _youtube(ctx: RunContext) -> Collector:
+    from .youtube import YouTubeCollector
+
+    return YouTubeCollector()
+
+
 def _manual(ctx: RunContext) -> Collector:
     from .manual import ManualCollector
 
     return ManualCollector()
 
 
-#: Source name -> factory. youtube and news_rss add their modules here in stage 7.
+#: Source name -> factory. news_rss adds its module here in stage 7.
 _FACTORIES: dict[str, Callable[[RunContext], Collector]] = {
     "web_questions": _web_search("web_questions"),
     # Disabled in sources.yaml: Reddit blocks Anthropic's crawler. Kept registered so it
     # can be switched back on, unchanged, if that ever changes.
     "reddit_search": _web_search("reddit_search"),
     "manual": _manual,
+    "youtube": _youtube,
 }
 
 

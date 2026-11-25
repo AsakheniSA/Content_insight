@@ -17,7 +17,7 @@ on:
       source:
         description: "Source to collect from"
         type: choice
-        options: [all, web_questions, manual]
+        options: [all, web_questions, youtube, manual]
         default: all
       category:
         description: "Limit to one category id, or 'all'"
@@ -66,6 +66,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SHEET_ID: ${{ secrets.SHEET_ID || vars.SHEET_ID }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         # A sheet ID is not truly secret (access is controlled by sharing the sheet), so
         # it is accepted from either the Secrets tab or the Variables tab. This line says
         # whether it arrived, never what it is.
@@ -88,6 +89,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SHEET_ID: ${{ secrets.SHEET_ID || vars.SHEET_ID }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           python -m tula_insights collect \
             --source "${{ inputs.source }}" \

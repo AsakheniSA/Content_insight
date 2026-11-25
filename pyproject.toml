@@ -15,11 +15,12 @@ dependencies = [
     "gspread==6.2.1",
     "google-auth==2.63.1",
     "anthropic==2.14.0",
+    "requests==2.34.2",
 ]
 
 # Later stages add their own runtime dependencies here as they land:
 #   stage 4    fastembed
-#   stage 7    requests, feedparser, google-api-python-client
+#   stage 7    feedparser
 [project.optional-dependencies]
 dev = [
     "pytest==9.2.0",

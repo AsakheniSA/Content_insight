@@ -18,7 +18,6 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import schema
 from .utils import serialise as ser
 from .utils.clock import now_utc
 
@@ -196,7 +195,7 @@ class Classification(Model):
     def to_updates(self, *, model: str, prompt_version: str) -> dict[str, Any]:
         """The `items` columns this classification sets."""
         return {
-            "status": schema.ITEM_STATUSES[3] if not self.is_relevant else "classified",
+            "status": "classified" if self.is_relevant else "irrelevant",
             "is_relevant": self.is_relevant,
             "primary_category": self.primary_category,
             "tags": ser.join_list(self.tags),
