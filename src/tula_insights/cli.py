@@ -18,7 +18,6 @@ log = get_logger(__name__)
 
 #: Stage name -> the build stage it arrives in. Filled in as each one lands.
 PENDING_STAGES = {
-    "collect": 2,
     "classify": 3,
     "score": 4,
     "publish": 5,
@@ -33,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "stage",
-        choices=["validate-config", "setup-sheet", *PENDING_STAGES],
+        choices=["validate-config", "setup-sheet", "collect", *PENDING_STAGES],
         help="which pipeline stage to run",
     )
     parser.add_argument(
@@ -84,6 +83,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _validate_config(config)
     if args.stage == "setup-sheet":
         return _setup_sheet(config, dry_run=args.dry_run)
+    if args.stage == "collect":
+        return _collect(
+            config, source=args.source, category=args.category, dry_run=args.dry_run
+        )
 
     stage_number = PENDING_STAGES[args.stage]
     print(
@@ -92,6 +95,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         file=sys.stderr,
     )
     return 3
+
+
+def _collect(config, *, source: str, category: str, dry_run: bool) -> int:
+    from .collectors.base import CollectorError
+    from .stages import collect as collect_stage
+
+    try:
+        result = collect_stage.run(
+            config, source=source, category=category, dry_run=dry_run
+        )
+    except CollectorError as error:
+        print(f"Collect failed:\n  {error}", file=sys.stderr)
+        return 1
+    except ConfigError as error:
+        print(f"Config error:\n{error}", file=sys.stderr)
+        return 2
+
+    print("\n".join(collect_stage.summary_lines(result)))
+    collect_stage.write_job_summary(result)
+    return 0
 
 
 def _validate_config(config) -> int:

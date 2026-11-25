@@ -108,3 +108,104 @@ class FakeSpreadsheet:
         sheet = FakeWorksheet(title, rows, cols)
         self._sheets[title] = sheet
         return sheet
+
+
+# --- Claude API fakes ----------------------------------------------------------------
+
+
+class Obj:
+    """A tiny attribute bag standing in for an SDK response object."""
+
+    def __init__(self, **fields):
+        self.__dict__.update(fields)
+
+    def __repr__(self):  # pragma: no cover - debugging aid
+        return f"Obj({self.__dict__})"
+
+
+def search_result(url, title="", page_age=None):
+    return Obj(
+        type="web_search_result",
+        url=url,
+        title=title,
+        page_age=page_age,
+        encrypted_content="enc-" + url,
+    )
+
+
+def tool_use(block_id, query):
+    return Obj(type="server_tool_use", id=block_id, name="web_search", input={"query": query})
+
+
+def tool_result(block_id, results):
+    return Obj(type="web_search_tool_result", tool_use_id=block_id, content=list(results))
+
+
+def tool_error(block_id, error_code):
+    return Obj(
+        type="web_search_tool_result",
+        tool_use_id=block_id,
+        content=Obj(type="web_search_tool_result_error", error_code=error_code),
+    )
+
+
+def text(body, citations=None):
+    return Obj(type="text", text=body, citations=list(citations or []))
+
+
+def citation(url, cited_text, title=""):
+    return Obj(
+        type="web_search_result_location", url=url, cited_text=cited_text, title=title
+    )
+
+
+def message(content, *, stop_reason="end_turn", searches=1, tokens_in=100, tokens_out=10):
+    return Obj(
+        content=list(content),
+        stop_reason=stop_reason,
+        usage=Obj(
+            input_tokens=tokens_in,
+            output_tokens=tokens_out,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+            server_tool_use=Obj(web_search_requests=searches, web_fetch_requests=0),
+        ),
+    )
+
+
+class FakeLlm:
+    """Stands in for LlmClient: returns queued responses and records the requests."""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.requests = []
+        from tula_insights.llm.client import Usage
+
+        self.usage = Usage()
+
+    def create(self, **kwargs):
+        self.requests.append(kwargs)
+        if not self.responses:
+            raise AssertionError("FakeLlm ran out of queued responses")
+        response = self.responses.pop(0)
+        self.usage.add_response(response, kwargs.get("model", "fake"))
+        return response
+
+
+class FakeSearchProvider:
+    """Stands in for a SearchProvider: returns queued responses per call."""
+
+    name = "fake_search"
+
+    def __init__(self, responses=None, error=None):
+        self.responses = list(responses or [])
+        self.error = error
+        self.requests = []
+
+    def search(self, request):
+        self.requests.append(request)
+        if self.error is not None:
+            raise self.error
+        from tula_insights.search.provider import SearchResponse
+
+        return self.responses.pop(0) if self.responses else SearchResponse()

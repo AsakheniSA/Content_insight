@@ -1,0 +1,84 @@
+# Run the collect stage by hand, to test it in Actions before the full pipeline exists.
+#
+# This is deliberately dispatch-only: there is no schedule and no push trigger, so it
+# only ever runs when someone presses the button. The scheduled pipeline that chains
+# every stage together arrives in build stage 6 (pipeline.yml), and this workflow goes
+# away then.
+#
+# Needs three repository secrets: ANTHROPIC_API_KEY, GOOGLE_SERVICE_ACCOUNT_JSON
+# (base64) and SHEET_ID. Start with dry_run = true, which reads the sheet and runs real
+# searches but writes nothing.
+
+name: Collect (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Source to collect from"
+        type: choice
+        options: [all, reddit_search]
+        default: reddit_search
+      category:
+        description: "Limit to one category id, or 'all'"
+        type: string
+        default: all
+      dry_run:
+        description: "Run searches but write nothing to the sheet"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# One collect run at a time. The sheet assumes a single writer, and two runs would
+# both read the same item ids and then both append the same rows.
+concurrency:
+  group: tula-insights-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    name: Collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Validate the config before spending anything
+        run: python -m tula_insights validate-config
+
+      - name: Collect
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+        run: |
+          python -m tula_insights collect \
+            --source "${{ inputs.source }}" \
+            --category "${{ inputs.category }}" \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      # Counts and ids only — this repository is public, so the artifact is too.
+      - name: Upload the run summary
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: collect-summary-${{ github.run_id }}
+          path: ${{ github.step_summary }}
+          if-no-files-found: ignore
+          retention-days: 14

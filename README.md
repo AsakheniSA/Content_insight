@@ -7,8 +7,8 @@ publishes a ranked daily feed that Irene and Gigi's content pipeline reads.
 Everything is stored in one Google Sheet. Everything runs on GitHub Actions. The only
 paid service is the Claude API.
 
-> **Build status: stage 1 of 10 complete.** Scaffold, configuration and the Sheets
-> schema are in place. The collectors, classifier, scoring and feed stages land next —
+> **Build status: stage 2 of 10 complete.** Scaffold, configuration, the Sheets schema
+> and the first collector are in place. The classifier, scoring and feed stages land next —
 > see [`IMPLEMENTATION_BRIEF.md`](IMPLEMENTATION_BRIEF.md) section 11 for the order, and
 > the [Build progress](#build-progress) table below for where things stand.
 
@@ -144,6 +144,20 @@ python -m tula_insights validate-config
 python -m tula_insights setup-sheet
 ```
 
+Collect, which runs real searches and spends real credit — start with `--dry-run`:
+
+```bash
+python -m tula_insights collect --source reddit_search --dry-run --log-format plain
+```
+
+```bash
+python -m tula_insights collect --source reddit_search
+```
+
+In Actions, use the **Collect (manual)** workflow (Actions → Collect (manual) → Run
+workflow). It is dispatch-only and defaults to a dry run; the scheduled pipeline that
+chains every stage arrives in stage 6.
+
 Stages that are not built yet exit with code 3 and say which build stage they arrive in.
 Once they land, each takes the same options:
 
@@ -191,7 +205,16 @@ keyword set in `keywords.yaml` — config validation refuses a category that no 
 set can ever discover. Bump the classifier prompt version when you do.
 
 **Adding a source** means a module in `src/tula_insights/collectors/`, an entry in
-`sources.yaml`, and a test. Nothing else changes.
+`sources.yaml`, a line in `collectors/registry.py`, and a test. Nothing else changes. A
+source that is enabled in YAML but has no module fails at planning time rather than
+silently collecting nothing.
+
+**Caps.** Three of them apply to every search, and whichever bites first wins:
+`sources.yaml` → `daily_request_cap` per source, `budget.yaml` → `daily_caps` and
+`monthly_caps`, and `max_uses_per_request` per search request. Hitting a cap skips the
+rest of that source and flags it in the summary; it does not fail the run. The ledger
+reads what previous runs recorded in the `runs` tab, so there is no separate counter to
+drift.
 
 Config errors fail at startup with the file, the field and the reason, before a run
 spends anything:
@@ -228,8 +251,8 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 | # | Stage | Status |
 |---|---|---|
 | 1 | Scaffold, config, Sheets schema | **Done** |
-| 2 | `reddit_search` collector + `SearchProvider` | Next |
-| 3 | Classifier (Claude Haiku, batch + sync) | — |
+| 2 | `reddit_search` collector + `SearchProvider` | **Done** |
+| 3 | Classifier (Claude Haiku, batch + sync) | Next |
 | 4 | Dedupe + scoring | — |
 | 5 | Publish feed | — |
 | 6 | Full `pipeline.yml` | — |
@@ -249,6 +272,14 @@ Recorded as they are designed in, not discovered later.
   requests, so there are no upvote or comment counts, and coverage depends on what the
   search index has. Engagement for Reddit items is inferred from result position and how
   often a thread recurs across queries.
+- **Search results carry no snippet.** A `web_search_result` returns only `url`, `title`,
+  `page_age` and an opaque encrypted blob — there is no readable excerpt. Where an item
+  has a snippet it came from a *citation*, which is text the model quoted from the page,
+  and `engagement_json.snippet_source` records that. Items the model did not cite have
+  no snippet, and the classifier works from the title alone.
+- **`page_age` is not always a date.** It is a free-text string. It is parsed where the
+  format is recognised and left blank otherwise, rather than guessed at — a wrong date
+  would poison the recency score. The raw string is always kept in `engagement_json`.
 - **No "People also ask" or autocomplete data.** The Claude web search tool is not
   Google and does not expose them. Those collectors were dropped from the design.
 - **No Facebook or Instagram collectors.** The compliant path is the
@@ -277,7 +308,12 @@ src/tula_insights/
   models.py                domain objects, and how each maps to a row
   config.py                YAML loading and validation
   store/sheets.py          all Google Sheets I/O; nothing else imports gspread
-  utils/                   serialisation, clock, logging
+  search/                  the SearchProvider interface and its Claude implementation
+  collectors/              one module per source, plus the registry
+  llm/                     the Claude client, token accounting and prompt loading
+  stages/                  one module per pipeline stage
+  budget.py                spend caps, read from the runs tab
+  utils/                   serialisation, clock, logging, PII, retry, rate limits
 tests/                     pytest; no network
 web/                       the read-only view (stage 9)
 ```

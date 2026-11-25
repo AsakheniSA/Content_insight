@@ -397,7 +397,9 @@ class RunStats(Model):
     run_id: str
     trigger: str = "dispatch"
     inputs: dict[str, Any] = Field(default_factory=dict)
-    started_at: datetime = Field(default_factory=now_utc)
+    #: Optional only so that a malformed sheet row reads back faithfully as "unknown".
+    #: A RunStats the pipeline creates always has one, from the default factory.
+    started_at: datetime | None = Field(default_factory=now_utc)
     finished_at: datetime | None = None
     status: str = "running"
     items_collected_by_source: dict[str, int] = Field(default_factory=dict)
@@ -448,7 +450,7 @@ class RunStats(Model):
             run_id=ser.read_str(row.get("run_id")) or "",
             trigger=ser.read_str(row.get("trigger")) or "dispatch",
             inputs=ser.load_json(row.get("inputs"), default={}) or {},
-            started_at=ser.read_datetime(row.get("started_at")) or now_utc(),
+            started_at=ser.read_datetime(row.get("started_at")),
             finished_at=ser.read_datetime(row.get("finished_at")),
             status=ser.read_str(row.get("status")) or "running",
             items_collected_by_source=ser.load_json(
