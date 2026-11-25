@@ -280,7 +280,7 @@ def test_a_lookalike_domain_is_not_counted_as_reddit():
 def test_the_query_hint_reaches_the_model(config, source):
     provider = FakeSearchProvider([SearchResponse() for _ in range(10)])
     collector().collect(source, make_ctx(config, provider))
-    assert 'word "reddit"' in provider.requests[0].intent
+    assert 'word "forum"' in provider.requests[0].intent
 
 
 def test_no_hint_means_the_intent_is_unchanged(config, source):

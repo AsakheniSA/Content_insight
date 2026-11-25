@@ -43,12 +43,12 @@ sources:
         question-and-answer pages, community discussions — or official pages that answer
         them (airlines, governments, veterinary bodies), about: {category}.
       # A search term, not a domain restriction: it asks the engine for discussion
-      # threads, wherever they live. Reddit's own site blocks Anthropic's crawler, so
-      # this is the only way Reddit threads can arrive automatically — and only if the
-      # search index still returns them. The run summary counts how many do.
+      # threads, wherever they live. "reddit" was tried on 2026-11-25 and returned no
+      # reddit.com results from 6 queries, so it is no longer asked for. The run
+      # summary still counts reddit.com results, in case that ever changes.
       query_hint: >-
-        Include the word "reddit" in at least one of your searches and the word "forum"
-        in another: those find discussion threads where owners ask real questions.
+        Include the word "forum" in at least one of your searches: that finds discussion
+        threads where owners ask real questions.
 
   # ---- by hand ---------------------------------------------------------------
   - name: manual

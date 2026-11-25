@@ -90,8 +90,10 @@ def run(
     #: Collectors with something to record once their items are saved, and their context.
     hooks: list[tuple[AfterWrite, list[RawItem], RunContext]] = []
 
+    # Item ids are unique across every source, so one read serves them all.
+    known = _known_item_ids(store, result)
+
     for cfg in sources:
-        known = _known_item_ids(store, cfg.name, result)
         ctx = RunContext(
             run_id=run_id,
             config=config,
@@ -193,7 +195,7 @@ def _build_search(
     return llm, ClaudeWebSearchProvider(llm)
 
 
-def _known_item_ids(store: SheetStore | None, source: str, result: CollectResult) -> set[str]:
+def _known_item_ids(store: SheetStore | None, result: CollectResult) -> set[str]:
     if store is None:
         return set()
     try:
