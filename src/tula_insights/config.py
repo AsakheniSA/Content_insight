@@ -238,6 +238,7 @@ class EmbeddingsConfig(Base):
 
 
 class DedupeConfig(Base):
+    judge_model: str = "claude-haiku-5-5"
     merge_threshold: float = Field(ge=0.0, le=1.0)
     judge_lower_threshold: float = Field(ge=0.0, le=1.0)
     max_judge_calls_per_run: int = Field(gt=0)
@@ -608,6 +609,13 @@ class AppConfig(Base):
         if angle_model not in self.budget.prices.models:
             raise ValueError(
                 f"scoring.publish.angle_model is {angle_model!r} but budget.yaml has no "
+                f"price for it, so its cost could not be tracked"
+            )
+
+        judge_model = self.scoring.dedupe.judge_model
+        if judge_model not in self.budget.prices.models:
+            raise ValueError(
+                f"scoring.dedupe.judge_model is {judge_model!r} but budget.yaml has no "
                 f"price for it, so its cost could not be tracked"
             )
 

@@ -7,9 +7,9 @@ publishes a ranked daily feed that Irene and Gigi's content pipeline reads.
 Everything is stored in one Google Sheet. Everything runs on GitHub Actions. The only
 paid service is the Claude API.
 
-> **Build status: stage 3 of 10 complete.** Scaffold, configuration, the Sheets schema,
-> discovery (general web search, YouTube comments, manual submissions) and the classifier
-> are in place. The classifier, scoring and feed stages land next —
+> **Build status: stage 4 of 10 complete.** Scaffold, configuration, the Sheets schema,
+> discovery (general web search, YouTube comments, manual submissions), the classifier,
+> and dedupe and scoring are in place. The classifier, scoring and feed stages land next —
 > see [`IMPLEMENTATION_BRIEF.md`](IMPLEMENTATION_BRIEF.md) section 11 for the order, and
 > the [Build progress](#build-progress) table below for where things stand.
 
@@ -193,6 +193,24 @@ the run waits up to 15 minutes for it, and anything unfinished is collected by t
 run. In Actions, use **Classify (manual)**; it and **Collect (manual)** share one lock,
 so they never write to the sheet at the same time.
 
+Score, which merges repeat questions into insights and ranks them. It needs the
+embedding model's runtime, which is a separate install because it is large:
+
+```bash
+pip install -e ".[embeddings]"
+```
+
+```bash
+python scripts/calibrate_dedupe.py
+```
+
+```bash
+python -m tula_insights score --dry-run --log-format plain
+```
+
+The first command downloads the model (about 67 MB) on first use. In Actions, use
+**Score (manual)**: it caches the model and checks the dedupe thresholds before scoring.
+
 Stages that are not built yet exit with code 3 and say which build stage they arrive in.
 Once they land, each takes the same options:
 
@@ -296,8 +314,8 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 | 1 | Scaffold, config, Sheets schema | **Done** |
 | 2 | Search collector + `SearchProvider` (`web_questions`; `youtube` and `manual` brought forward from stage 7) | **Done** |
 | 3 | Classifier (Claude Haiku, batch + sync) | **Done** |
-| 4 | Dedupe + scoring | Next |
-| 5 | Publish feed | — |
+| 4 | Dedupe + scoring | **Done** |
+| 5 | Publish feed | Next |
 | 6 | Full `pipeline.yml` | — |
 | 7 | `news_rss` (the rest landed in stage 2) | — |
 | 8 | Alerting, keep-alive, budget guardrails | — |
@@ -328,6 +346,32 @@ version**, so rows stay traceable to the rules that made them.
 Cost is roughly US$0.05 a day for about 400 items in batch mode. The system prompt
 (about 1,700 tokens) is cached, and the run checks the monthly cap before it starts.
 
+## How dedupe and scoring work
+
+Each classified question is turned into a vector by a small local model
+(`BAAI/bge-small-en-v1.5`, run on the GitHub runner, no API cost) and compared with every
+insight's question:
+
+| Similarity | What happens |
+|---|---|
+| 0.90 or more | Merged into that insight — no API call |
+| 0.80 to 0.90 | Claude Haiku judges whether it is really the same question (up to 60 a run; the rest wait for the next run) |
+| below 0.80 | A new insight |
+
+Before scoring, the workflow checks these thresholds against the real model on a fixed
+set of question pairs with known answers (`tests/fixtures/dedupe_pairs.yaml`). If they
+sort those pairs wrongly, the run stops rather than merging distinct questions.
+
+Every insight is then scored from its items, each part from 0 to 1 and weighted in
+`scoring.yaml`: **recurrence** (how many items), **cross-source** (how many sources),
+**engagement** (ranked within each source, so YouTube is compared with YouTube),
+**recency** (half-life 14 days) and **trend** (the last 7 days against the 21 before).
+Insights close to anything a reviewer marked `rejected` in the feed lose 0.15.
+
+Insight figures are recomputed from their items on every run, so the items stay the
+source of truth. YouTube evidence links therefore leave an insight on their own when
+the 30-day purge blanks those items.
+
 ## Known limitations
 
 Recorded as they are designed in, not discovered later.
@@ -347,6 +391,10 @@ Recorded as they are designed in, not discovered later.
 - **YouTube search is the scarce quota.** Since June 2026 `search.list` has its own
   bucket of 100 calls a day, separate from the 10,000-unit pool. The collector makes at
   most 50 a day. Quota resets at midnight Pacific time.
+- **An insight's question can come from a YouTube comment.** The purge blanks the
+  comment and the classifier's rewrite of it after 30 days, but the insight keeps its
+  canonical question, which is that rewrite. Whether YouTube treats a paraphrase as API
+  data is unresolved — worth a check before the feed goes live.
 - **Search engagement signals are weak.** The search tool returns no view, vote or
   comment counts, so web items are scored on result position and on how often a page
   recurs across a run's queries.

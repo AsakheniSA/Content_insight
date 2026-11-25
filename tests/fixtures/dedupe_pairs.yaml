@@ -1,0 +1,31 @@
+# Question pairs with a known answer, for checking the dedupe thresholds against the
+# real embedding model. Used by scripts/calibrate_dedupe.py (run in the score workflow
+# before scoring) and by the tests marked `model`.
+#
+#   same:      one answer would serve both. Must reach at least the judge band, or the
+#              merge can never happen.
+#   different: related, but a different question. Must stay below merge_threshold, so
+#              it is never merged without the judge being asked.
+#   unrelated: different topics. Must stay below judge_lower_threshold, so no judge call
+#              is wasted on them.
+
+same:
+  - ["Can my dog fly in the cabin on a domestic flight?", "Is it possible to take my dog in the cabin on a local flight?"]
+  - ["How do I stop my dog getting car sick?", "What can I do about my dog's motion sickness in the car?"]
+  - ["How long before travelling must my dog have its rabies vaccination?", "How soon after the rabies shot can my dog travel?"]
+  - ["What paperwork do I need to take my cat to the UK?", "Which documents does my cat need to travel to the United Kingdom?"]
+  - ["Is it safe to sedate my cat for a long flight?", "Should I give my cat a sedative before flying?"]
+  - ["Which beaches in the Western Cape allow dogs?", "Where can I take my dog to the beach in the Western Cape?"]
+
+different:
+  - ["Can my dog fly in the cabin on a domestic flight?", "What size crate does my dog need to fly in cargo?"]
+  - ["How do I stop my dog getting car sick?", "How do I stop my cat getting car sick?"]
+  - ["How long before travelling must my dog have its rabies vaccination?", "Does my dog need tick treatment before going to the bushveld?"]
+  - ["What paperwork do I need to take my cat to the UK?", "How much does it cost to relocate a cat to the UK?"]
+  - ["Is it safe to sedate my cat for a long flight?", "How do I get my cat used to its carrier before a trip?"]
+
+unrelated:
+  - ["Can my dog fly in the cabin on a domestic flight?", "How often should I bathe my dog?"]
+  - ["How do I stop my dog getting car sick?", "Why is my cat suddenly not eating?"]
+  - ["What paperwork do I need to take my cat to the UK?", "How do I stop my puppy from biting?"]
+  - ["Which beaches in the Western Cape allow dogs?", "What should I feed a senior cat?"]
