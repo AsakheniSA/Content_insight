@@ -297,6 +297,7 @@ class PublishConfig(Base):
     cooldown_days: int = Field(ge=0)
     min_total_score: float = Field(ge=0.0, le=1.0)
     angle_model: str
+    angle_max_chars: int = Field(default=160, gt=20)
 
     @model_validator(mode="after")
     def _satisfiable(self) -> PublishConfig:

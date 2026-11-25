@@ -99,3 +99,40 @@ def test_the_limit_is_exactly_the_configured_age():
 
 def test_youtube_has_a_30_day_limit_in_the_real_config(config):
     assert config.settings.retention.api_data_max_days["youtube"] == 30
+
+
+# --- feed links ----------------------------------------------------------------------
+
+from tula_insights.stages.retention import purge_expired_feed_links  # noqa: E402
+
+
+def add_feed(store, insight_id, days_ago, links):
+    store.append_rows("feed", [{
+        "feed_date": (NOW - timedelta(days=days_ago)).date().isoformat(), "rank": 1,
+        "insight_id": insight_id, "question": "Q?", "status": "used",
+        "evidence_urls": ";".join(links),
+        "served_at": (NOW - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }])
+
+
+def test_old_feed_rows_lose_their_youtube_links_only(config, store):
+    add_feed(store, "a", 40, ["https://www.youtube.com/watch?v=x&lc=1", "https://example.com/page",
+                              "https://youtu.be/abc"])
+    assert purge_expired_feed_links(store, config, now=NOW) == 1
+    assert store.read_rows("feed")[0]["evidence_urls"] == "https://example.com/page"
+
+
+def test_recent_feed_rows_keep_their_links(config, store):
+    add_feed(store, "a", 10, ["https://www.youtube.com/watch?v=x"])
+    assert purge_expired_feed_links(store, config, now=NOW) == 0
+
+
+def test_reviewer_columns_survive_the_purge(config, store):
+    add_feed(store, "a", 40, ["https://www.youtube.com/watch?v=x"])
+    purge_expired_feed_links(store, config, now=NOW)
+    assert store.read_rows("feed")[0]["status"] == "used"
+
+
+def test_a_lookalike_host_is_not_purged(config, store):
+    add_feed(store, "a", 40, ["https://notyoutube.com/watch?v=x"])
+    assert purge_expired_feed_links(store, config, now=NOW) == 0

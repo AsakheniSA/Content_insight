@@ -65,3 +65,5 @@ publish:
   cooldown_days: 21            # an insight may not be re-served inside this window
   min_total_score: 0.15        # below this, publish fewer rows rather than weak ones
   angle_model: "claude-haiku-5-5"
+  # One sentence. Angles carry no numbers, rules or facts — see prompts/angle.md.
+  angle_max_chars: 160

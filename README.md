@@ -7,9 +7,10 @@ publishes a ranked daily feed that Irene and Gigi's content pipeline reads.
 Everything is stored in one Google Sheet. Everything runs on GitHub Actions. The only
 paid service is the Claude API.
 
-> **Build status: stage 4 of 10 complete.** Scaffold, configuration, the Sheets schema,
-> discovery (general web search, YouTube comments, manual submissions), the classifier,
-> and dedupe and scoring are in place. The classifier, scoring and feed stages land next —
+> **Build status: stage 5 of 10 complete.** Every stage of the pipeline now exists:
+> discovery (general web search, YouTube comments, manual submissions), classification,
+> dedupe and scoring, and the daily feed. Next comes the scheduled workflow that runs
+> them in order. The classifier, scoring and feed stages land next —
 > see [`IMPLEMENTATION_BRIEF.md`](IMPLEMENTATION_BRIEF.md) section 11 for the order, and
 > the [Build progress](#build-progress) table below for where things stand.
 
@@ -58,7 +59,24 @@ one are penalised for the next 30 days, so the same unwanted angle stops resurfa
 
 The pipeline is prevented *in code* from writing those four columns — `SheetStore`
 raises rather than overwriting a reviewer's decision. Everything else on the tab belongs
-to the pipeline and will be overwritten.
+to the pipeline.
+
+**Read only today's rows.** Each day gets up to 6 rows (3 posts, 2 spares each), ranked
+1 to 6: at most 2 per category, 1 to 2 on general pet care, and nothing below a minimum
+score — a thin day serves fewer rows, not weaker ones. A question is served once, and
+again only when new evidence has arrived *and* 21 days have passed. Running publish
+twice on the same day serves nothing new.
+
+**`suggested_angle` is a direction, never a fact.** It says what a post could help an
+owner do — "Help owners work out what to ask their airline before booking" — and is
+deliberately free of numbers, rules, time frames, prices, airline policies and legal or
+medical statements. An angle containing any digit is rejected automatically. Facts for
+the post itself come from Tula's verified-claims ledger, with its sourcing rules, never
+from the angle. If an angle could not be written, the row is still served with the
+angle blank.
+
+**Evidence links to YouTube comments are removed from feed rows after 30 days**
+(YouTube's storage limit); other links stay.
 
 ---
 
@@ -211,6 +229,18 @@ python -m tula_insights score --dry-run --log-format plain
 The first command downloads the model (about 67 MB) on first use. In Actions, use
 **Score (manual)**: it caches the model and checks the dedupe thresholds before scoring.
 
+Publish, which writes today's feed:
+
+```bash
+python -m tula_insights publish --dry-run --log-format plain
+```
+
+```bash
+python -m tula_insights publish
+```
+
+In Actions, use **Publish (manual)**.
+
 Stages that are not built yet exit with code 3 and say which build stage they arrive in.
 Once they land, each takes the same options:
 
@@ -315,8 +345,8 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 | 2 | Search collector + `SearchProvider` (`web_questions`; `youtube` and `manual` brought forward from stage 7) | **Done** |
 | 3 | Classifier (Claude Haiku, batch + sync) | **Done** |
 | 4 | Dedupe + scoring | **Done** |
-| 5 | Publish feed | Next |
-| 6 | Full `pipeline.yml` | — |
+| 5 | Publish feed | **Done** |
+| 6 | Full `pipeline.yml` | Next |
 | 7 | `news_rss` (the rest landed in stage 2) | — |
 | 8 | Alerting, keep-alive, budget guardrails | — |
 | 9 | Web view on Vercel | — |

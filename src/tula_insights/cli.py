@@ -18,7 +18,6 @@ log = get_logger(__name__)
 
 #: Stage name -> the build stage it arrives in. Filled in as each one lands.
 PENDING_STAGES = {
-    "publish": 5,
     "archive": 8,
 }
 
@@ -31,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "stage",
         choices=["validate-config", "setup-sheet", "collect", "classify", "score",
-                 *PENDING_STAGES],
+                 "publish", *PENDING_STAGES],
         help="which pipeline stage to run",
     )
     parser.add_argument(
@@ -82,6 +81,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _validate_config(config)
     if args.stage == "setup-sheet":
         return _setup_sheet(config, dry_run=args.dry_run)
+    if args.stage == "publish":
+        return _publish(config, dry_run=args.dry_run)
     if args.stage == "score":
         return _score(config, dry_run=args.dry_run)
     if args.stage == "classify":
@@ -98,6 +99,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         file=sys.stderr,
     )
     return 3
+
+
+def _publish(config, *, dry_run: bool) -> int:
+    from .stages import publish as publish_stage
+
+    try:
+        result = publish_stage.run(config, dry_run=dry_run)
+    except publish_stage.PublishError as error:
+        print(f"Publish failed:\n  {error}", file=sys.stderr)
+        return 1
+    print("\n".join(publish_stage.summary_lines(result)))
+    publish_stage.write_job_summary(result)
+    return 0
 
 
 def _score(config, *, dry_run: bool) -> int:

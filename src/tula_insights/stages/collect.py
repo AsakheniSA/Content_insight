@@ -201,10 +201,11 @@ def _enforce_storage_limits(
     """
     if store is None or dry_run:
         return
-    from .retention import purge_expired
+    from .retention import purge_expired, purge_expired_feed_links
 
     try:
         purged = purge_expired(store, config)
+        feed_rows = purge_expired_feed_links(store, config)
     except Exception as error:
         log.warning("collect.purge_failed", extra={"error_type": type(error).__name__})
         result.warnings.append(
@@ -214,6 +215,8 @@ def _enforce_storage_limits(
         return
     if purged:
         result.metrics["retention.rows_purged"] = purged
+    if feed_rows:
+        result.metrics["retention.feed_rows_links_purged"] = feed_rows
 
 
 def _build_search(
