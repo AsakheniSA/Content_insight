@@ -1,0 +1,43 @@
+# Cross-cutting runtime settings.
+#
+# NOTE — deviation from IMPLEMENTATION_BRIEF.md section 7, which lists five config
+# files. Sheet sizing, retention, rate limits and logging belong to none of those five
+# cleanly (they are not categories, sources, keywords, scoring or money), so they live
+# here rather than being wedged into budget.yaml. Flagged for approval.
+
+version: 1
+
+sheet:
+  spreadsheet_name: "Tula Insights"
+  # Google Drive Help currently states 20 million cells per spreadsheet; several
+  # community sources still say 10 million. The lower figure is used deliberately so
+  # the archive triggers early either way. VERIFY if the sheet ever gets close.
+  cell_limit: 10000000
+  # Archive `items` rows once the sheet passes this fraction of cell_limit.
+  archive_threshold_fraction: 0.70
+  # Sheets API allows 60 read and 60 write requests per minute per user per project
+  # (300 per project). Staying under 60 keeps a parallel collector matrix safe.
+  reads_per_minute: 50
+  writes_per_minute: 50
+  max_retries: 5
+  backoff_base_seconds: 1.0
+  backoff_max_seconds: 60.0
+  # Rows requested when a new tab is created. Sheets grows tabs automatically on append.
+  new_tab_rows: 1000
+
+retention:
+  items_archive_after_days: 60
+
+run:
+  # South Africa keeps one offset all year, so a fixed +02:00 is exact and needs no
+  # timezone database (Windows ships none). Timestamps are stored as ISO 8601 UTC;
+  # this offset is only used to decide which calendar day "today's feed" belongs to.
+  local_utc_offset_hours: 2
+  local_timezone_label: "SAST"
+
+logging:
+  level: "INFO"
+  format: "json"
+  # Hard rule for a public repo: logs carry counts and IDs only, never item text,
+  # questions or URLs. Enforced by utils/logging.py.
+  allow_item_text: false

@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tula-insights"
+version = "0.1.0"
+description = "Tula Insights Layer — research and insights feed for the Tula content pipeline"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "pydantic==2.14.4",
+    "PyYAML==6.0.4",
+    "gspread==6.2.1",
+    "google-auth==2.63.1",
+]
+
+# Later stages add their own runtime dependencies here as they land:
+#   stage 2/3  anthropic
+#   stage 4    fastembed
+#   stage 7    requests, feedparser, google-api-python-client
+[project.optional-dependencies]
+dev = [
+    "pytest==9.2.0",
+    "pytest-cov==7.1.0",
+    "ruff==0.17.6",
+]
+
+[project.scripts]
+tula-insights = "tula_insights.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = ["error::DeprecationWarning:tula_insights.*"]

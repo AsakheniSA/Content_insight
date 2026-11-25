@@ -1,0 +1,46 @@
+# Spend caps and the price table used to estimate cost.
+#
+# There is no budget for third-party paid services. Everything paid here runs on
+# existing Claude API credit. `prices_checked_on` records when the numbers below were
+# last confirmed against Anthropic's published pricing — re-check and update the date
+# whenever you touch them, and treat a stale date as a reason to verify.
+
+version: 1
+
+prices_checked_on: "2026-11-25"
+prices_source: "Values supplied in IMPLEMENTATION_BRIEF.md section 3; confirm against the Anthropic pricing page."
+
+monthly_caps:
+  claude_usd: 25.00
+  claude_web_searches: 1500
+  youtube_searches: 1200
+
+daily_caps:
+  claude_web_searches: 40
+  youtube_searches: 50
+
+# What happens when a cap would be exceeded: `skip` logs it, skips the paid stage or
+# source and flags it in the job summary without failing the run. `fail` fails the run.
+on_cap_exceeded: skip
+
+prices:
+  claude_web_search_per_1000_searches: 10.00
+  models:
+    claude-haiku-5-5:
+      input_per_mtok: 0.10
+      output_per_mtok: 0.50
+      cache_read_per_mtok: 0.01
+      batch_input_per_mtok: 0.05
+      batch_output_per_mtok: 0.25
+    claude-sonnet-5-5:
+      input_per_mtok: 2.00
+      output_per_mtok: 10.00
+      cache_read_per_mtok: 0.20
+      batch_input_per_mtok: 1.00
+      batch_output_per_mtok: 5.00
+
+limits:
+  # Prompts over the long-context threshold are billed at a multiple of standard rates,
+  # so every request is hard-capped well below it in code.
+  max_input_tokens_per_request: 20000
+  long_context_threshold_tokens: 100000

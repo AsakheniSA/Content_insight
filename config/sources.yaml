@@ -1,0 +1,102 @@
+# Source registry. The collector registry reads this file: adding a source means
+# adding a module under src/tula_insights/collectors/ plus an entry here. Nothing else
+# changes. `name` must match the collector module's `name` attribute exactly.
+#
+# `enabled: false` sources are skipped by the plan job and never appear in the matrix,
+# so a source that is not built yet simply does not run.
+
+version: 1
+
+defaults:
+  enabled: false
+  timeout_seconds: 30
+  max_retries: 4
+  backoff_base_seconds: 1.0
+  backoff_max_seconds: 60.0
+  requests_per_minute: 30
+  daily_request_cap: 50
+  max_items_per_run: 200
+
+sources:
+  # ---- stage 2 ------------------------------------------------------------------
+  - name: reddit_search
+    enabled: true
+    description: >-
+      Reddit threads discovered through the Claude web search tool restricted to
+      reddit.com. Search results only (title, URL, snippet, page age) — the Reddit API
+      is not used and Reddit pages are never fetched or scraped.
+    regions: [za, intl]
+    requests_per_minute: 10
+    daily_request_cap: 20
+    max_items_per_run: 150
+    settings:
+      allowed_domains: ["reddit.com"]
+      max_uses_per_request: 3
+      keyword_sets_per_run: 6
+      # Engagement signals available here are weak: no upvote or comment counts.
+      # Scored on result position plus recurrence across queries. Documented in README.
+      engagement_basis: ["result_position", "query_recurrence"]
+
+  # ---- stage 7 ------------------------------------------------------------------
+  - name: web_questions
+    enabled: false
+    description: >-
+      General web discovery through the Claude web search tool: forums, Q&A sites,
+      veterinary and pet-travel sites, airline and government pet pages.
+    regions: [za, intl]
+    requests_per_minute: 10
+    daily_request_cap: 20
+    max_items_per_run: 150
+    settings:
+      allowed_domains: []
+      blocked_domains:
+        - pinterest.com
+        - quora.com
+      max_uses_per_request: 3
+      keyword_sets_per_run: 6
+      engagement_basis: ["result_position", "query_recurrence"]
+
+  - name: youtube
+    enabled: false
+    description: >-
+      YouTube Data API v3. search.list for keyword sets (treated as scarce quota),
+      videos.list for view/like/comment counts, commentThreads.list for top-level
+      comments. Comments containing a question or pain point become items. No author
+      fields are stored.
+    regions: [za, intl]
+    requests_per_minute: 60
+    daily_request_cap: 400
+    max_items_per_run: 300
+    settings:
+      # Google's docs are inconsistent on search.list cost (100 units vs a separate
+      # 100-calls/day bucket), so search is capped conservatively and separately.
+      daily_search_cap: 50
+      max_videos_per_search: 10
+      max_comments_per_video: 40
+      comment_order: relevance
+      min_comment_chars: 25
+
+  - name: news_rss
+    enabled: false
+    description: >-
+      Curated RSS feeds from pet, veterinary and travel outlets, South African and
+      international. Headline, summary snippet, URL and date only.
+    regions: [za, intl]
+    requests_per_minute: 30
+    daily_request_cap: 100
+    max_items_per_run: 200
+    settings:
+      feeds: []          # filled in at stage 7
+      max_age_days: 14
+
+  - name: manual
+    enabled: false
+    description: >-
+      Ingests unprocessed rows from the manual_submissions tab. This is the compliant
+      input path for Facebook and Instagram observations — no collectors or scrapers
+      exist for those platforms.
+    regions: [za, intl]
+    requests_per_minute: 60
+    daily_request_cap: 1000
+    max_items_per_run: 200
+    settings: {}

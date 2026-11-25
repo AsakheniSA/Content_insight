@@ -1,0 +1,72 @@
+# Lint, test and validate config on every push and pull request.
+#
+# This workflow must never need a secret: everything it runs works against the
+# repository's own config and in-memory fakes, with no network calls. That keeps CI
+# green on forks and means a pull request can never exfiltrate a credential.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, test and validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Scan for committed credentials
+        run: python scripts/check_secrets.py
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Validate the config files
+        run: python -m tula_insights validate-config
+
+      - name: Test
+        run: pytest -q
+
+      - name: Confirm the setup script needs no credentials to start
+        # It must fail with a clear message rather than a traceback when SHEET_ID and
+        # the service account are absent, because that is what a new contributor hits.
+        run: |
+          set +e
+          output=$(python scripts/setup_sheet.py --dry-run 2>&1)
+          code=$?
+          set -e
+          echo "$output"
+          if [ "$code" -ne 2 ]; then
+            echo "::error::Expected exit code 2 without credentials, got $code"
+            exit 1
+          fi
+          case "$output" in
+            *GOOGLE_SERVICE_ACCOUNT_JSON*) ;;
+            *) echo "::error::The error message should name the missing variable"; exit 1 ;;
+          esac

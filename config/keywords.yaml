@@ -1,0 +1,127 @@
+# Keyword sets that drive search discovery.
+#
+# A collector takes one keyword set per request. `phrases` are combined with the
+# region's `modifiers` at query-build time, so a phrase is written region-neutrally.
+# Every keyword set must name a category `id` that exists in categories.yaml.
+
+version: 1
+
+regions:
+  za:
+    name: South Africa
+    modifiers:
+      - "South Africa"
+      - "SA"
+      - "Johannesburg"
+      - "Cape Town"
+      - "Durban"
+  intl:
+    name: International (English)
+    modifiers:
+      - "UK"
+      - "USA"
+      - "Australia"
+      - "international"
+
+# Broad phrases used to find pet questions that do not fit a single category yet.
+# These are intentionally question-shaped: the aim is real questions people ask.
+seed_phrases:
+  - "can I take my dog"
+  - "can I take my cat"
+  - "travelling with my dog"
+  - "travelling with my cat"
+  - "flying with a pet"
+  - "moving abroad with pets"
+  - "pet relocation advice"
+  - "first time travelling with a pet"
+
+keyword_sets:
+  - id: permits_basic
+    category: documents_permits
+    regions: [za, intl]
+    phrases:
+      - "pet passport requirements"
+      - "dog export permit"
+      - "pet import permit process"
+      - "microchip required for pet travel"
+
+  - id: vaccinations_basic
+    category: vaccinations_health_certs
+    regions: [za, intl]
+    phrases:
+      - "rabies vaccination before travel"
+      - "rabies titre test pet"
+      - "veterinary health certificate for travel"
+      - "pet vaccination timeline travel"
+
+  - id: airline_rules
+    category: airline_transport
+    regions: [za, intl]
+    phrases:
+      - "dog in cabin airline policy"
+      - "pet cargo flight"
+      - "airline pet crate requirements"
+      - "brachycephalic breed flight restriction"
+
+  - id: motion_sickness
+    category: travel_sickness_anxiety
+    regions: [za, intl]
+    phrases:
+      - "dog car sick"
+      - "cat stressed in carrier"
+      - "sedation for pet flight"
+      - "crate training before travel"
+
+  - id: parasite_risk
+    category: destination_disease_parasites
+    regions: [za, intl]
+    phrases:
+      - "tick prevention before trip"
+      - "biliary risk dogs"
+      - "heartworm prevention travel"
+      - "parasite treatment before travel"
+
+  - id: pet_friendly
+    category: pet_friendly_stays
+    regions: [za, intl]
+    phrases:
+      - "pet friendly accommodation"
+      - "dog friendly beach rules"
+      - "dog friendly hiking trail"
+      - "hotel pet policy deposit"
+
+  - id: boarding
+    category: sitters_boarding
+    regions: [za, intl]
+    phrases:
+      - "choosing a boarding kennel"
+      - "pet sitter checklist"
+      - "kennel vaccination requirements"
+      - "leaving dog while on holiday"
+
+  - id: travel_gear
+    category: gear_packing
+    regions: [za, intl]
+    phrases:
+      - "dog car harness safety"
+      - "pet travel checklist"
+      - "travel crate for dog"
+      - "dog first aid kit travel"
+
+  - id: costs
+    category: costs_planning
+    regions: [za, intl]
+    phrases:
+      - "cost to fly a dog"
+      - "pet relocation cost"
+      - "pet travel insurance"
+      - "how far in advance pet travel"
+
+  - id: everyday_care
+    category: general_pet_care
+    regions: [za, intl]
+    phrases:
+      - "puppy feeding schedule"
+      - "dog grooming at home"
+      - "cat behaviour problem"
+      - "dog not eating"

@@ -1,0 +1,44 @@
+# Secrets — never commit these
+.env
+.env.*
+!.env.example
+service_account.json
+*service-account*.json
+*credentials*.json
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Local caches and model files
+.cache/
+.fastembed_cache/
+models/
+
+# Local data dumps
+*.xlsx
+*.csv
+local_out/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Web app
+web/node_modules/
+web/.next/
+web/.vercel/

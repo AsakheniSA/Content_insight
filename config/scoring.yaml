@@ -1,0 +1,56 @@
+# Dedupe thresholds, score weights and publishing rules.
+# Every number the ranking depends on lives here — no magic numbers in code.
+
+version: 1
+
+embeddings:
+  # VERIFY at stage 4 against the fastembed model list before relying on this name.
+  # fastembed downloads the model on first use; GitHub Actions caches the directory.
+  model: "BAAI/bge-small-en-v1.5"
+  dimensions: 384
+  cache_dir: ".cache/fastembed"
+  batch_size: 64
+
+dedupe:
+  # Cosine similarity of the question embedding against every stored insight vector.
+  merge_threshold: 0.90        # >= this: merge into the existing insight, no LLM call
+  judge_lower_threshold: 0.80  # between the two: ask the Claude judge
+  # < judge_lower_threshold: new insight
+  max_judge_calls_per_run: 60
+  judge_candidates_per_question: 3
+
+weights:
+  # Must sum to 1.0 — validated at config load. feedback_adjustment is applied on top
+  # of the weighted sum, so it is not part of this budget.
+  recurrence: 0.25
+  cross_source: 0.20
+  engagement: 0.20
+  recency: 0.20
+  trend: 0.15
+
+recurrence:
+  # log1p(item_count) / log1p(saturation_count), capped at 1.0
+  saturation_count: 20
+
+recency:
+  half_life_days: 14
+
+trend:
+  window_days: 7
+  baseline_days: 21
+  ratio_cap: 3.0
+
+feedback:
+  # Insights semantically close to feed rows a reviewer marked `rejected` are penalised.
+  similarity_threshold: 0.85
+  penalty: -0.15
+  lookback_days: 30
+
+publish:
+  daily_feed_size: 6           # 3 posts/day x 2 buffer
+  max_per_category: 2          # category diversity rule
+  min_general_pet_care: 1      # keep the travel campaign from crowding out everything
+  max_general_pet_care: 2
+  cooldown_days: 21            # an insight may not be re-served inside this window
+  min_total_score: 0.15        # below this, publish fewer rows rather than weak ones
+  angle_model: "claude-haiku-5-5"

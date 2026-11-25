@@ -1,0 +1,137 @@
+# Categories for the Tula Insights Layer.
+#
+# Adding, renaming or re-scoping a category is a YAML-only change. The classifier
+# prompt is built from `name` + `description` + `example_questions`, so changing any
+# of those changes classifier behaviour — bump `version` and the prompt version when
+# you do, so older rows stay traceable to the rules that produced them.
+#
+# `id` must be snake_case and stable forever: it is written into every `items` and
+# `insights` row. Rename `name` freely; never reuse or repurpose an `id`.
+
+version: 1
+
+categories:
+  - id: documents_permits
+    name: Documents & permits
+    description: >-
+      Paperwork needed to move a pet between places: pet passports, import and export
+      permits, microchip identification requirements, state veterinary paperwork,
+      endorsements, and which authority issues what.
+    example_questions:
+      - "What paperwork do I need to fly my dog from South Africa to the UK?"
+      - "How long before travel must I apply for an export permit?"
+      - "Does my pet need a microchip before it can get a passport?"
+    tags: []
+
+  - id: vaccinations_health_certs
+    name: Vaccinations & health certificates
+    description: >-
+      Vaccination requirements and veterinary sign-off for travel: rabies vaccination
+      timing and validity, rabies titre or serology tests, official health certificates,
+      parasite treatment windows, and which vet is allowed to sign.
+    example_questions:
+      - "How soon after the rabies shot can my dog travel?"
+      - "Where do I get a rabies titre test done and how long does it take?"
+      - "How long is a veterinary health certificate valid for?"
+    tags: []
+
+  - id: airline_transport
+    name: Airline & transport rules
+    description: >-
+      Moving a pet by air, road, rail or sea: cabin versus cargo versus manifest freight,
+      crate and kennel specifications, weight and size cut-offs, breed restrictions,
+      temperature embargoes, airline-specific policies, and booking logistics.
+    example_questions:
+      - "Which airlines allow dogs in the cabin on flights from Johannesburg?"
+      - "What size crate does my dog need to fly in cargo?"
+      - "Are snub-nosed breeds banned from flying?"
+    tags: []
+
+  - id: travel_sickness_anxiety
+    name: Travel sickness & anxiety
+    description: >-
+      How pets cope with the journey itself: motion sickness, drooling and vomiting in
+      the car, panting and stress, crate training before a trip, calming aids, and
+      questions about whether and when sedation is appropriate.
+    example_questions:
+      - "My dog vomits every car trip — what can I do?"
+      - "Is it safe to sedate a cat for a long flight?"
+      - "How do I get my puppy used to its crate before we travel?"
+    tags: []
+
+  - id: destination_disease_parasites
+    name: Destination disease & parasite risk
+    description: >-
+      Health risks tied to where the pet is going: ticks and tick-borne disease such as
+      biliary, rabies-endemic areas, heartworm, tick and flea prevention timing, and
+      regional or seasonal risk differences.
+    example_questions:
+      - "Do I need tick cover before taking my dog to the bushveld?"
+      - "Is biliary a risk on the KZN coast in summer?"
+      - "What parasite prevention should my dog have before a road trip?"
+    tags: []
+
+  - id: pet_friendly_stays
+    name: Pet-friendly stays & destinations
+    description: >-
+      Where pets are actually welcome and under what conditions: accommodation policies,
+      pet-friendly beaches, parks, trails and restaurants, size or number limits, deposits,
+      and on-site rules at the destination.
+    example_questions:
+      - "Which beaches in the Western Cape allow dogs off-lead?"
+      - "Are there pet-friendly self-catering places in the Drakensberg?"
+      - "Does the reserve allow dogs or do I need to board him nearby?"
+    tags: []
+
+  - id: sitters_boarding
+    name: Sitters, boarding & kennels
+    description: >-
+      Leaving the pet behind: choosing and vetting a sitter or kennel, what boarding
+      facilities require, house-sitting versus boarding, handover instructions, and
+      separation or settling-in concerns.
+    example_questions:
+      - "How do I choose a good boarding kennel?"
+      - "What vaccinations do kennels usually require?"
+      - "What should I write in the handover notes for a pet sitter?"
+    tags: []
+
+  - id: gear_packing
+    name: Gear & packing
+    description: >-
+      Equipment and supplies for the trip: crates, carriers, car harnesses and restraints,
+      travel bowls, food and water on the road, first-aid kits, ID tags, and packing
+      checklists.
+    example_questions:
+      - "What should be in a dog travel first-aid kit?"
+      - "Is a car harness or a crate safer for a dog?"
+      - "How do I keep dog food fresh on a long road trip?"
+    tags: []
+
+  - id: costs_planning
+    name: Costs & planning
+    description: >-
+      The money and the timeline: what pet relocation or travel costs, how far ahead to
+      start, pet travel insurance, vet bill cover while away, agent versus do-it-yourself,
+      and planning sequences.
+    example_questions:
+      - "How much does it cost to relocate a dog overseas?"
+      - "How many months ahead should I start the process?"
+      - "Is pet travel insurance worth it?"
+    tags: []
+
+  - id: general_pet_care
+    name: General pet care
+    description: >-
+      Everyday pet care that is not specific to travel: feeding and diet, grooming and
+      coat care, behaviour and training, routine and preventative health. Use this when
+      the question is about caring for a pet generally rather than about a journey.
+    example_questions:
+      - "How often should I bathe my dog?"
+      - "Why is my cat suddenly not eating?"
+      - "How do I stop my puppy from biting?"
+    tags:
+      - nutrition
+      - grooming
+      - behaviour
+      - health
+      - training
