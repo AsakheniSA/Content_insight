@@ -336,7 +336,7 @@ def summary_lines(result: CollectResult) -> list[str]:
         f"  collected     {result.collected}",
         f"  duplicates    {result.duplicates} (already in the sheet)",
         f"  written       {result.written}",
-        f"  searches      {result.searches}",
+        f"  web searches  {result.searches} (Claude)",
         f"  est. cost     ${result.est_cost_usd:.4f}",
     ]
     if result.metrics:
@@ -373,7 +373,7 @@ def write_job_summary(result: CollectResult) -> None:
 | Collected | {result.collected} |
 | Duplicates skipped | {result.duplicates} |
 | Written | {result.written} |
-| Web searches | {result.searches} |
+| Claude web searches | {result.searches} |
 | Estimated cost | ${result.est_cost_usd:.4f} |
 """
     if result.metrics:

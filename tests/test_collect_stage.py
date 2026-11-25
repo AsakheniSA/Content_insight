@@ -150,7 +150,7 @@ def test_a_dry_run_still_reports_what_it_would_have_done(config, store, wired):
     outcome = stage.run(config, source="web_questions", dry_run=True)
     text = "\n".join(stage.summary_lines(outcome))
     assert "dry run" in text
-    assert "searches      2" in text
+    assert "web searches  2" in text
 
 
 # --- failure isolation ---------------------------------------------------------------
