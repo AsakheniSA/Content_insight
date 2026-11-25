@@ -16,12 +16,18 @@ dedupe:
   # Asked only for the uncertain band between the two thresholds below.
   judge_model: "claude-haiku-5-5"
   # Cosine similarity of the question embedding against every stored insight vector.
-  # The brief's values; checked against the real model by scripts/calibrate_dedupe.py,
-  # which the score workflow runs before scoring.
-  merge_threshold: 0.90        # >= this: merge into the existing insight, no LLM call
+  # Checked against the real model by scripts/calibrate_dedupe.py, which the score
+  # workflow runs before scoring. Measured on 2026-11-25 with bge-small-en-v1.5:
+  #   same question, reworded:   0.830 - 0.958
+  #   related, different:        0.719 - 0.899   (0.899 = dog vs cat car sickness)
+  #   unrelated:                 0.375 - 0.552
+  # merge_threshold was raised from the brief's 0.90 to 0.93 because the dog/cat pair
+  # came within 0.001 of merging without the judge being asked.
+  merge_threshold: 0.93        # >= this: merge into the existing insight, no LLM call
   judge_lower_threshold: 0.80  # between the two: ask the Claude judge
   # < judge_lower_threshold: new insight
-  max_judge_calls_per_run: 60
+  # Raised from 60 to 150 with the higher merge threshold: the first run used 59.
+  max_judge_calls_per_run: 150
   judge_candidates_per_question: 3
 
 weights:
