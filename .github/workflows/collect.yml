@@ -66,12 +66,11 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SHEET_ID: ${{ secrets.SHEET_ID || vars.SHEET_ID }}
-          # Which tab SHEET_ID came from — never its value. A sheet ID is not truly
-          # secret (access is controlled by sharing the sheet), so it is accepted from
-          # either the Secrets tab or the Variables tab.
-          SHEET_ID_SOURCE: ${{ secrets.SHEET_ID != '' && 'Secrets tab' || (vars.SHEET_ID != '' && 'Variables tab' || 'NOT FOUND on either tab') }}
+        # A sheet ID is not truly secret (access is controlled by sharing the sheet), so
+        # it is accepted from either the Secrets tab or the Variables tab. This line says
+        # whether it arrived, never what it is.
         run: |
-          echo "SHEET_ID: $SHEET_ID_SOURCE"
+          if [ -n "$SHEET_ID" ]; then echo "SHEET_ID: received"; else echo "SHEET_ID: NOT RECEIVED from either tab"; fi
           python -m tula_insights validate-config
 
       # Creates any missing tab, so nobody has to run setup_sheet.py by hand. Safe on
