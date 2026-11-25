@@ -1,40 +1,50 @@
-"""Reddit threads, found through the Claude web search tool.
+"""Search-based discovery, through the Claude API web search tool.
 
-**Why this is a search collector and not a Reddit client.** Reddit's self-service Data
-API closed in November 2025 and unauthenticated endpoints now refuse requests, so this
-collector never contacts Reddit at all. It reads the search index, through the one
-search provider the project pays for, restricted to `reddit.com`. No Reddit page is
-fetched or scraped.
+One collector class serves every search-driven source. What differs between them —
+which domains to allow or block, what to look for — lives in each source's
+`settings` block in `config/sources.yaml`, so adding a search source is a YAML change.
 
-**What that costs us.** There are no upvote or comment counts, because the search tool
-does not return them and the only way to get them would be to fetch the thread. The
-engagement signals here are therefore weak and the scoring stage must treat them as
-such:
+**Sources using it**
+
+* `web_questions` — the general web: forums, Q&A sites, veterinary and pet-travel
+  pages, airline and government pet rules. The main discovery source.
+* `reddit_search` — **disabled.** Reddit blocks Anthropic's crawler, so the Claude web
+  search tool rejects any request restricted to `reddit.com` ("The following domains
+  are not accessible to our user agent"). It stays registered so it can be switched
+  back on if that ever changes. Reddit threads can still come in by hand, through the
+  `manual_submissions` tab.
+
+**Engagement.** The search tool returns no view, vote or comment counts, so the signals
+here are weak and the scoring stage must treat them as such:
 
 * `result_position` — where the search engine ranked it. A proxy for relevance.
-* `query_recurrence` — how many of this run's queries surfaced the same thread. The
-  stronger of the two: a thread that several different phrasings all find is a thread
-  about something people keep asking.
-
-Coverage is whatever the search index holds, which is not all of Reddit. This is a
-documented limitation, not a bug.
+* `query_recurrence` — how many of this run's queries surfaced the same page. The
+  stronger of the two: a page that several different phrasings all find is about
+  something people keep asking.
 """
 
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from ..config import KeywordSet, ResolvedSource
 from ..models import RawItem
 from ..search.provider import SearchError, SearchRequest, SearchResponse, SearchResult
+from ..utils.clock import today
 from ..utils.logging import get_logger
 from ..utils.pii import is_person_url, scrub
 from .base import Collector, CollectorError, RunContext
 
 log = get_logger(__name__)
 
-#: `/r/<sub>/comments/<id>/<slug>` — the id is the stable identity of a thread.
+#: Used when a source's settings give no `intent`.
+DEFAULT_INTENT = (
+    "Find pages where pet owners ask questions or describe problems — forum threads, "
+    "question-and-answer pages, discussions — about: {category}."
+)
+
+#: `/r/<sub>/comments/<id>/<slug>` — the id is the stable identity of a Reddit thread.
 _SUBMISSION_RE = re.compile(r"/comments/([a-z0-9]{4,12})(?:/|$)", re.IGNORECASE)
 
 #: Page-age formats seen from the search tool. Anything else is kept as raw text and
@@ -43,6 +53,9 @@ _PAGE_AGE_FORMATS = ("%B %d, %Y", "%b %d, %Y", "%Y-%m-%d", "%d %B %Y", "%d %b %Y
 
 _RELATIVE_RE = re.compile(r"(\d+)\s+(day|week|month|year|hour|minute)s?\s+ago", re.IGNORECASE)
 _RELATIVE_DAYS = {"minute": 0, "hour": 0, "day": 1, "week": 7, "month": 30, "year": 365}
+
+#: Two-letter country hints for regions, for locality in search results.
+_REGION_COUNTRY = {"za": "ZA"}
 
 
 def parse_page_age(raw: str | None, *, now: datetime | None = None) -> datetime | None:
@@ -61,8 +74,6 @@ def parse_page_age(raw: str | None, *, now: datetime | None = None) -> datetime 
             continue
     match = _RELATIVE_RE.search(text)
     if match:
-        from datetime import timedelta
-
         amount = int(match.group(1))
         days = _RELATIVE_DAYS.get(match.group(2).lower(), 0) * amount
         base = now or datetime.now(UTC)
@@ -71,24 +82,27 @@ def parse_page_age(raw: str | None, *, now: datetime | None = None) -> datetime 
 
 
 def submission_id(url: str) -> str | None:
-    """The Reddit submission id in a thread URL, if it is a thread URL."""
+    """The Reddit submission id in a thread URL, if it is one."""
     match = _SUBMISSION_RE.search(url)
     return match.group(1).lower() if match else None
 
 
-class RedditSearchCollector:
-    """Finds Reddit threads where pet owners ask questions."""
+class WebSearchCollector:
+    """Finds pages where pet owners ask questions, through the search provider."""
 
-    name = "reddit_search"
+    def __init__(self, name: str) -> None:
+        self.name = name
 
     def collect(self, cfg: ResolvedSource, ctx: RunContext) -> list[RawItem]:
         provider = ctx.require_search()
         settings = cfg.settings or {}
 
-        allowed_domains = list(settings.get("allowed_domains") or ["reddit.com"])
+        allowed_domains = list(settings.get("allowed_domains") or [])
+        blocked_domains = list(settings.get("blocked_domains") or [])
         max_uses = int(settings.get("max_uses_per_request", 3))
         sets_per_run = int(settings.get("keyword_sets_per_run", 6))
         basis = list(settings.get("engagement_basis") or ["result_position", "query_recurrence"])
+        intent_template = str(settings.get("intent") or DEFAULT_INTENT)
 
         plan = self._plan(cfg, ctx, limit=sets_per_run)
         if not plan:
@@ -120,21 +134,20 @@ class RedditSearchCollector:
                 decision = ctx.ledger.allows_web_searches(1)
                 ctx.ledger.note_skip(self.name, decision.reason or "web search budget exhausted")
                 break
-            uses = min(max_uses, allowance)
 
             request = SearchRequest(
                 phrases=list(keyword_set.phrases),
-                intent=self._intent(ctx, keyword_set),
+                intent=self._intent(ctx, keyword_set, intent_template),
                 allowed_domains=allowed_domains,
-                max_uses=uses,
+                blocked_domains=blocked_domains,
+                max_uses=min(max_uses, allowance),
                 region=region,
-                country=self._country(ctx, region),
+                country=_REGION_COUNTRY.get(region),
             )
 
             try:
                 response = provider.search(request)
             except SearchError as error:
-                # One failed keyword set must not lose the others.
                 message = f"{self.name}: search failed for {keyword_set.id} ({region})"
                 log.warning(
                     "collect.search_failed",
@@ -192,32 +205,19 @@ class RedditSearchCollector:
 
         # Rotate by day so that a daily run does not always search the same first few
         # sets when the cap bites. Deterministic, so a re-run of the same day repeats.
-        offset = self._rotation_offset(ctx, len(pairs))
+        day = today(ctx.config.settings.run.local_utc_offset_hours)
+        offset = day.toordinal() % len(pairs)
         rotated = pairs[offset:] + pairs[:offset]
         return rotated[: max(1, limit)]
 
     @staticmethod
-    def _rotation_offset(ctx: RunContext, length: int) -> int:
-        from ..utils.clock import today
-
-        day = today(ctx.config.settings.run.local_utc_offset_hours)
-        return day.toordinal() % length if length else 0
-
-    @staticmethod
-    def _intent(ctx: RunContext, keyword_set: KeywordSet) -> str:
+    def _intent(ctx: RunContext, keyword_set: KeywordSet, template: str) -> str:
         try:
             category = ctx.config.categories.by_id(keyword_set.category)
+            subject = f"{category.name} — {category.description}"
         except KeyError:
-            return "Find Reddit threads where pet owners ask questions."
-        return (
-            "Find Reddit threads where pet owners ask questions or describe problems "
-            f"about: {category.name} — {category.description}"
-        )
-
-    @staticmethod
-    def _country(ctx: RunContext, region: str) -> str | None:
-        """A two-letter country hint for the search, for region-specific results."""
-        return {"za": "ZA"}.get(region)
+            subject = "pet care"
+        return template.replace("{category}", subject)
 
     # --- conversion ------------------------------------------------------------------
 
@@ -233,7 +233,6 @@ class RedditSearchCollector:
         remaining: int,
     ) -> list[RawItem]:
         items: list[RawItem] = []
-
         for result in response.results:
             if len(items) >= remaining:
                 break
@@ -246,7 +245,6 @@ class RedditSearchCollector:
                 continue
             seen_ids.add(item.item_id)
             items.append(item)
-
         return items
 
     def _to_item(
@@ -266,8 +264,6 @@ class RedditSearchCollector:
         if is_person_url(url):
             return None
 
-        external_id = submission_id(url)
-
         engagement: dict[str, object] = {
             "basis": basis,
             "result_position": result.position,
@@ -281,7 +277,7 @@ class RedditSearchCollector:
 
         return RawItem(
             source=self.name,
-            external_id=external_id,
+            external_id=submission_id(url),
             url=url,
             title=scrub(result.title),
             snippet=scrub(result.snippet),
@@ -293,4 +289,4 @@ class RedditSearchCollector:
         ).with_id()
 
 
-_: Collector = RedditSearchCollector()
+_: Collector = WebSearchCollector("web_questions")

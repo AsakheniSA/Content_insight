@@ -1,4 +1,4 @@
-"""The reddit_search collector: planning, caps, identity and PII."""
+"""The search collector: planning, caps, identity and PII."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import pytest
 from fakes import FakeSearchProvider
 from tula_insights.budget import UsageLedger
 from tula_insights.collectors.base import CollectorError, RunContext
-from tula_insights.collectors.reddit_search import (
-    RedditSearchCollector,
+from tula_insights.collectors.web_search import (
+    WebSearchCollector,
     parse_page_age,
     submission_id,
 )
@@ -38,7 +38,11 @@ def config(config_dir):
 
 @pytest.fixture
 def source(config):
-    return next(s for s in config.sources.resolve() if s.name == "reddit_search")
+    return next(s for s in config.sources.resolve() if s.name == "web_questions")
+
+
+def collector():
+    return WebSearchCollector("web_questions")
 
 
 def make_ctx(config, provider, **kwargs):
@@ -91,10 +95,10 @@ def test_results_become_items(config, source):
             search_count=1,
         )
     ])
-    items = RedditSearchCollector().collect(source, make_ctx(config, provider))
+    items = collector().collect(source, make_ctx(config, provider))
     assert len(items) == 1
     item = items[0]
-    assert item.source == "reddit_search"
+    assert item.source == "web_questions"
     assert item.external_id == "1abc2de"
     assert item.title == "Dog car sick"
     assert item.run_id == "test-run"
@@ -109,7 +113,7 @@ def test_engagement_records_the_weak_signals_and_names_them(config, source):
             search_count=1,
         )
     ])
-    item = RedditSearchCollector().collect(source, make_ctx(config, provider))[0]
+    item = collector().collect(source, make_ctx(config, provider))[0]
     assert item.engagement["result_position"] == 3
     assert item.engagement["query_recurrence"] == 2
     assert item.engagement["page_age"] == "May 1, 2026"
@@ -127,7 +131,7 @@ def test_profile_urls_are_dropped_not_scrubbed(config, source):
             search_count=1,
         )
     ])
-    items = RedditSearchCollector().collect(source, make_ctx(config, provider))
+    items = collector().collect(source, make_ctx(config, provider))
     assert [i.url for i in items] == ["https://reddit.com/r/dogs/comments/a1/keep/"]
 
 
@@ -142,7 +146,7 @@ def test_titles_and_snippets_are_scrubbed(config, source):
             search_count=1,
         )
     ])
-    item = RedditSearchCollector().collect(source, make_ctx(config, provider))[0]
+    item = collector().collect(source, make_ctx(config, provider))[0]
     assert item.title == "[user] asks about r/dogs travel"
     assert item.snippet == "mail me at [email]"
 
@@ -150,18 +154,18 @@ def test_titles_and_snippets_are_scrubbed(config, source):
 def test_items_already_in_the_sheet_are_skipped(config, source):
     url = "https://reddit.com/r/dogs/comments/a1/x/"
     provider = FakeSearchProvider([SearchResponse(results=[result(url)], search_count=1)])
-    first = RedditSearchCollector().collect(source, make_ctx(config, provider))[0]
+    first = collector().collect(source, make_ctx(config, provider))[0]
 
     provider = FakeSearchProvider([SearchResponse(results=[result(url)], search_count=1)])
     ctx = make_ctx(config, provider, known_item_ids={first.item_id})
-    assert RedditSearchCollector().collect(source, ctx) == []
+    assert collector().collect(source, ctx) == []
 
 
 def test_a_failing_search_raises_a_collector_error_naming_the_source(config, source):
     provider = FakeSearchProvider(error=SearchError("web search is not enabled"))
     ctx = make_ctx(config, provider)
-    with pytest.raises(CollectorError, match="reddit_search"):
-        RedditSearchCollector().collect(source, ctx)
+    with pytest.raises(CollectorError, match="web_questions"):
+        collector().collect(source, ctx)
     assert ctx.warnings
 
 
@@ -170,7 +174,7 @@ def test_tool_errors_become_warnings_without_failing(config, source):
         SearchResponse(results=[], error_codes=["too_many_requests"], search_count=0)
     ])
     ctx = make_ctx(config, provider)
-    assert RedditSearchCollector().collect(source, ctx) == []
+    assert collector().collect(source, ctx) == []
     assert any("too_many_requests" in w for w in ctx.warnings)
 
 
@@ -180,7 +184,7 @@ def test_tool_errors_become_warnings_without_failing(config, source):
 def test_the_category_filter_narrows_the_plan(config, source):
     provider = FakeSearchProvider([SearchResponse() for _ in range(20)])
     ctx = make_ctx(config, provider, category="gear_packing")
-    RedditSearchCollector().collect(source, ctx)
+    collector().collect(source, ctx)
     assert provider.requests, "a matching category should still be searched"
     searched = {p for request in provider.requests for p in request.phrases}
     assert "dog car harness safety" in searched
@@ -190,7 +194,7 @@ def test_the_category_filter_narrows_the_plan(config, source):
 def test_an_unmatched_category_collects_nothing_and_says_so(config, source):
     provider = FakeSearchProvider()
     ctx = make_ctx(config, provider, category="no_such_category")
-    assert RedditSearchCollector().collect(source, ctx) == []
+    assert collector().collect(source, ctx) == []
     assert provider.requests == []
     assert any("no keyword sets" in w for w in ctx.warnings)
 
@@ -199,7 +203,7 @@ def test_the_budget_cap_stops_searching_and_is_recorded(config, source):
     provider = FakeSearchProvider([SearchResponse(search_count=40) for _ in range(10)])
     ctx = make_ctx(config, provider)
     # The daily cap is 40 searches; one response burns all of it.
-    RedditSearchCollector().collect(source, ctx)
+    collector().collect(source, ctx)
     assert len(provider.requests) == 1
     assert ctx.ledger.skipped
     assert "cap" in ctx.ledger.skipped[0]
@@ -210,7 +214,7 @@ def test_max_uses_is_clamped_to_the_remaining_allowance(config, source):
     # Raise the source's own cap out of the way so the budget cap is what bites.
     roomy = source.model_copy(update={"daily_request_cap": 100})
     ctx = make_ctx(config, provider)
-    RedditSearchCollector().collect(roomy, ctx)
+    collector().collect(roomy, ctx)
     assert provider.requests[0].max_uses == 3
     assert provider.requests[1].max_uses == 1, "only one search of the daily cap was left"
 
@@ -219,7 +223,7 @@ def test_the_item_cap_is_honoured(config, source):
     many = [result(f"https://reddit.com/r/dogs/comments/x{i}/t/") for i in range(500)]
     provider = FakeSearchProvider([SearchResponse(results=many, search_count=1)])
     capped = source.model_copy(update={"max_items_per_run": 5})
-    items = RedditSearchCollector().collect(capped, make_ctx(config, provider))
+    items = collector().collect(capped, make_ctx(config, provider))
     assert len(items) == 5
 
 
@@ -227,7 +231,7 @@ def test_the_source_request_cap_stops_the_run(config, source):
     provider = FakeSearchProvider([SearchResponse(search_count=3) for _ in range(10)])
     tight = source.model_copy(update={"daily_request_cap": 3})
     ctx = make_ctx(config, provider)
-    RedditSearchCollector().collect(tight, ctx)
+    collector().collect(tight, ctx)
     assert len(provider.requests) == 1
     assert any("daily_request_cap" in s for s in ctx.ledger.skipped)
 
@@ -235,5 +239,5 @@ def test_the_source_request_cap_stops_the_run(config, source):
 def test_only_the_sources_regions_are_searched(config, source):
     provider = FakeSearchProvider([SearchResponse() for _ in range(20)])
     za_only = source.model_copy(update={"regions": ["za"]})
-    RedditSearchCollector().collect(za_only, make_ctx(config, provider))
+    collector().collect(za_only, make_ctx(config, provider))
     assert {r.region for r in provider.requests} == {"za"}

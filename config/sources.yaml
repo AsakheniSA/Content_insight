@@ -18,13 +18,53 @@ defaults:
   max_items_per_run: 200
 
 sources:
-  # ---- stage 2 ------------------------------------------------------------------
-  - name: reddit_search
+  # ---- main discovery source --------------------------------------------------
+  - name: web_questions
     enabled: true
     description: >-
-      Reddit threads discovered through the Claude web search tool restricted to
-      reddit.com. Search results only (title, URL, snippet, page age) — the Reddit API
-      is not used and Reddit pages are never fetched or scraped.
+      General web discovery through the Claude web search tool: forums, Q&A sites,
+      veterinary and pet-travel sites, airline and government pet pages. Search
+      results only (title, URL, page age); pages are not fetched.
+    regions: [za, intl]
+    requests_per_minute: 10
+    daily_request_cap: 20
+    max_items_per_run: 150
+    settings:
+      # No domain list to start with. A domain that blocks Anthropic's crawler makes the
+      # API reject the whole request, so lists are added only after a dry run shows
+      # which sites are worth allowing or blocking.
+      allowed_domains: []
+      blocked_domains: []
+      max_uses_per_request: 3
+      keyword_sets_per_run: 6
+      engagement_basis: ["result_position", "query_recurrence"]
+      intent: >-
+        Find pages where pet owners ask questions or describe problems — forum threads,
+        question-and-answer pages, community discussions — or official pages that answer
+        them (airlines, governments, veterinary bodies), about: {category}.
+
+  # ---- by hand ---------------------------------------------------------------
+  - name: manual
+    enabled: true
+    description: >-
+      Ingests unprocessed rows from the manual_submissions tab. The compliant path for
+      Facebook, Instagram and Reddit, none of which have collectors. submitted_by and
+      notes are not copied into items.
+    regions: [za, intl]
+    requests_per_minute: 60
+    daily_request_cap: 1000
+    max_items_per_run: 200
+    settings: {}
+
+  # ---- disabled --------------------------------------------------------------
+  - name: reddit_search
+    enabled: false
+    description: >-
+      DISABLED: Reddit blocks Anthropic's crawler, so the Claude web search tool rejects
+      any request restricted to reddit.com ("The following domains are not accessible to
+      our user agent", seen on 2026-11-25). The Reddit API is out of scope (brief §13).
+      Kept so it can be switched back on unchanged if Reddit ever unblocks. Until then,
+      Reddit threads come in by hand through manual_submissions.
     regions: [za, intl]
     requests_per_minute: 10
     daily_request_cap: 20
@@ -33,29 +73,12 @@ sources:
       allowed_domains: ["reddit.com"]
       max_uses_per_request: 3
       keyword_sets_per_run: 6
-      # Engagement signals available here are weak: no upvote or comment counts.
-      # Scored on result position plus recurrence across queries. Documented in README.
       engagement_basis: ["result_position", "query_recurrence"]
+      intent: >-
+        Find Reddit threads where pet owners ask questions or describe problems about:
+        {category}.
 
-  # ---- stage 7 ------------------------------------------------------------------
-  - name: web_questions
-    enabled: false
-    description: >-
-      General web discovery through the Claude web search tool: forums, Q&A sites,
-      veterinary and pet-travel sites, airline and government pet pages.
-    regions: [za, intl]
-    requests_per_minute: 10
-    daily_request_cap: 20
-    max_items_per_run: 150
-    settings:
-      allowed_domains: []
-      blocked_domains:
-        - pinterest.com
-        - quora.com
-      max_uses_per_request: 3
-      keyword_sets_per_run: 6
-      engagement_basis: ["result_position", "query_recurrence"]
-
+  # ---- stage 7 ---------------------------------------------------------------
   - name: youtube
     enabled: false
     description: >-
@@ -88,15 +111,3 @@ sources:
     settings:
       feeds: []          # filled in at stage 7
       max_age_days: 14
-
-  - name: manual
-    enabled: false
-    description: >-
-      Ingests unprocessed rows from the manual_submissions tab. This is the compliant
-      input path for Facebook and Instagram observations — no collectors or scrapers
-      exist for those platforms.
-    regions: [za, intl]
-    requests_per_minute: 60
-    daily_request_cap: 1000
-    max_items_per_run: 200
-    settings: {}

@@ -19,17 +19,17 @@ def test_repository_config_is_valid(config_dir):
     config = load_config()
     assert len(config.categories.categories) == 10
     assert "general_pet_care" in config.categories.ids
-    assert [s.name for s in config.enabled_sources] == ["reddit_search"]
+    assert [s.name for s in config.enabled_sources] == ["web_questions", "manual"]
 
 
 def test_source_defaults_are_filled_in(config_dir):
     config = load_config()
-    reddit = next(s for s in config.sources.resolve() if s.name == "reddit_search")
+    web = next(s for s in config.sources.resolve() if s.name == "web_questions")
     # Set explicitly on the source.
-    assert reddit.daily_request_cap == 20
+    assert web.daily_request_cap == 20
     # Inherited from the defaults block.
-    assert reddit.timeout_seconds == 30.0
-    assert reddit.max_retries == 4
+    assert web.timeout_seconds == 30.0
+    assert web.max_retries == 4
 
 
 def test_disabled_sources_are_excluded(config_dir):

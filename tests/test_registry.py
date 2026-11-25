@@ -21,11 +21,17 @@ def ctx_for(config):
 
 
 def test_the_default_plan_is_every_enabled_source(config):
-    assert [s.name for s in plan_sources(config)] == ["reddit_search"]
+    assert [s.name for s in plan_sources(config)] == ["web_questions", "manual"]
 
 
 def test_a_named_source_narrows_the_plan(config):
-    assert [s.name for s in plan_sources(config, source="reddit_search")] == ["reddit_search"]
+    assert [s.name for s in plan_sources(config, source="manual")] == ["manual"]
+
+
+def test_reddit_search_is_disabled_and_says_so(config):
+    """Reddit blocks Anthropic's crawler; asking for it must not silently do nothing."""
+    with pytest.raises(CollectorError, match="disabled"):
+        plan_sources(config, source="reddit_search")
 
 
 def test_an_unknown_source_names_the_real_ones(config):
@@ -51,14 +57,15 @@ def test_an_enabled_source_with_no_module_fails_at_planning_time(config_dir):
         plan_sources(load_config())
 
 
-def test_building_a_known_collector(config):
-    collector = build_collector("reddit_search", ctx_for(config))
-    assert collector.name == "reddit_search"
+@pytest.mark.parametrize("name", ["web_questions", "manual", "reddit_search"])
+def test_building_a_known_collector(config, name):
+    collector = build_collector(name, ctx_for(config))
+    assert collector.name == name
     assert hasattr(collector, "collect")
 
 
 def test_building_an_unknown_collector_lists_what_exists(config):
-    with pytest.raises(CollectorError, match="reddit_search"):
+    with pytest.raises(CollectorError, match="web_questions"):
         build_collector("nope", ctx_for(config))
 
 

@@ -18,7 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from ..budget import SERVICE_MESSAGES, SERVICE_WEB_SEARCH, UsageLedger
-from ..collectors.base import CollectorError, RunContext
+from ..collectors.base import AfterWrite, CollectorError, RunContext
 from ..collectors.registry import build_collector, plan_sources
 from ..config import AppConfig, ConfigError
 from ..llm.client import LlmClient
@@ -85,6 +85,8 @@ def run(
         return result
 
     all_items: list[RawItem] = []
+    #: Collectors with something to record once their items are saved, and their context.
+    hooks: list[tuple[AfterWrite, list[RawItem], RunContext]] = []
 
     for cfg in sources:
         known = _known_item_ids(store, cfg.name, result)
@@ -124,6 +126,8 @@ def run(
         result.duplicates += before - len(items)
         result.items_by_source[cfg.name] = len(items)
         all_items.extend(items)
+        if isinstance(collector, AfterWrite):
+            hooks.append((collector, items, ctx))
 
     result.skipped = list(ledger.skipped)
     result.searches = ledger.searches_this_run
@@ -131,6 +135,19 @@ def run(
         result.est_cost_usd = llm.usage.estimate_usd(config.budget)
 
     result.written = _write_items(store, all_items, dry_run=dry_run)
+    # Only reached if the write succeeded — a failure raises before this line. That
+    # ordering is what stops a submission being marked processed and then lost.
+    if not dry_run:
+        for collector, items, ctx in hooks:
+            try:
+                collector.after_write(items, ctx)
+            except Exception as error:
+                log.warning(
+                    "collect.after_write_failed",
+                    extra={"error_type": type(error).__name__},
+                )
+                result.warnings.append(f"Could not finish recording a source: {error}")
+            result.warnings.extend(w for w in ctx.warnings if w not in result.warnings)
     _record_run(store, config, result, llm=llm, dry_run=dry_run, source=source, category=category)
 
     if sources and len(result.failed_sources) == len(sources):

@@ -189,6 +189,14 @@ class LlmClient:
     @staticmethod
     def _explain_bad_request(error: anthropic.BadRequestError) -> str:
         message = str(getattr(error, "message", "") or error)
+        if "not accessible to our user agent" in message.lower():
+            return (
+                "A domain in this source's allowed_domains blocks Anthropic's crawler, so "
+                "the Claude web search tool cannot search it. Remove that domain from the "
+                "source in config/sources.yaml — or disable the source. Content from that "
+                "site can still come in by hand through the manual_submissions tab.\n"
+                f"API said: {message}"
+            )
         if "web search" in message.lower() or "web_search" in message.lower():
             return (
                 "The Claude API rejected the web search tool. An organisation admin must "

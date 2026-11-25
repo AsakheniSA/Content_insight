@@ -17,8 +17,8 @@ on:
       source:
         description: "Source to collect from"
         type: choice
-        options: [all, reddit_search]
-        default: reddit_search
+        options: [all, web_questions, manual]
+        default: all
       category:
         description: "Limit to one category id, or 'all'"
         type: string
@@ -60,6 +60,12 @@ jobs:
           pip install -e .
 
       - name: Validate the config before spending anything
+        # Given the secrets too, so its "environment" line reports what the collect
+        # step will actually see. It prints only set / not set, never a value.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
         run: python -m tula_insights validate-config
 
       - name: Collect

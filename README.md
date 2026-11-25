@@ -8,7 +8,7 @@ Everything is stored in one Google Sheet. Everything runs on GitHub Actions. The
 paid service is the Claude API.
 
 > **Build status: stage 2 of 10 complete.** Scaffold, configuration, the Sheets schema
-> and the first collector are in place. The classifier, scoring and feed stages land next —
+> and discovery (general web search plus manual submissions) are in place. The classifier, scoring and feed stages land next —
 > see [`IMPLEMENTATION_BRIEF.md`](IMPLEMENTATION_BRIEF.md) section 11 for the order, and
 > the [Build progress](#build-progress) table below for where things stand.
 
@@ -147,12 +147,14 @@ python -m tula_insights setup-sheet
 Collect, which runs real searches and spends real credit — start with `--dry-run`:
 
 ```bash
-python -m tula_insights collect --source reddit_search --dry-run --log-format plain
+python -m tula_insights collect --dry-run --log-format plain
 ```
 
 ```bash
-python -m tula_insights collect --source reddit_search
+python -m tula_insights collect
 ```
+
+Add `--source web_questions` or `--source manual` to run just one.
 
 In Actions, use the **Collect (manual)** workflow (Actions → Collect (manual) → Run
 workflow). It is dispatch-only and defaults to a dry run; the scheduled pipeline that
@@ -199,6 +201,14 @@ Everything tunable lives in `config/`. No magic numbers in code.
 | `scoring.yaml` | Dedupe thresholds, score weights, publishing rules |
 | `budget.yaml` | Monthly and daily spend caps, and the price table |
 | `settings.yaml` | Sheet sizing, retention, Sheets rate limits, logging |
+
+**Adding manual submissions.** Anyone on the team can add rows to the
+`manual_submissions` tab: paste the question or quote into `question_or_quote`, the link
+into `url`, and the site into `platform` (`reddit`, `facebook`, `instagram`, …). Leave
+`processed` blank; the pipeline sets it to `TRUE` once the row is safely in `items`.
+`submitted_by` and `notes` stay on that tab and are never copied into `items`, so it's
+safe to write who found it and why. Don't paste the poster's username into the quote —
+`u/` handles, `@handles`, emails and phone numbers are scrubbed anyway.
 
 **Adding a category** is a YAML-only change in `categories.yaml`, plus at least one
 keyword set in `keywords.yaml` — config validation refuses a category that no keyword
@@ -251,7 +261,7 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 | # | Stage | Status |
 |---|---|---|
 | 1 | Scaffold, config, Sheets schema | **Done** |
-| 2 | `reddit_search` collector + `SearchProvider` | **Done** |
+| 2 | Search collector + `SearchProvider` (`web_questions`, plus `manual` brought forward) | **Done** |
 | 3 | Classifier (Claude Haiku, batch + sync) | Next |
 | 4 | Dedupe + scoring | — |
 | 5 | Publish feed | — |
@@ -267,11 +277,14 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 
 Recorded as they are designed in, not discovered later.
 
-- **Reddit is reached through the Claude web search tool only.** Self-service Reddit
-  Data API access closed in November 2025 and unauthenticated endpoints now refuse
-  requests, so there are no upvote or comment counts, and coverage depends on what the
-  search index has. Engagement for Reddit items is inferred from result position and how
-  often a thread recurs across queries.
+- **Reddit cannot be collected automatically.** Reddit blocks Anthropic's crawler, so
+  the Claude web search tool rejects any search restricted to `reddit.com` (confirmed on
+  25 November 2026). The Reddit Data API is out of scope (§13): commercial use needs a
+  contract, and self-service access closed in November 2025. The `reddit_search` source
+  is kept but disabled. **Reddit threads come in by hand** through `manual_submissions`.
+- **Search engagement signals are weak.** The search tool returns no view, vote or
+  comment counts, so web items are scored on result position and on how often a page
+  recurs across a run's queries.
 - **Search results carry no snippet.** A `web_search_result` returns only `url`, `title`,
   `page_age` and an opaque encrypted blob — there is no readable excerpt. Where an item
   has a snippet it came from a *citation*, which is text the model quoted from the page,

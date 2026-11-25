@@ -70,3 +70,16 @@ class Collector(Protocol):
     def collect(self, cfg: ResolvedSource, ctx: RunContext) -> list[RawItem]:
         """Find items. Return them; do not write them."""
         ...
+
+
+@runtime_checkable
+class AfterWrite(Protocol):
+    """Optional. A collector that needs to record something once its items are safely
+    in the sheet — such as marking manual submissions processed — implements this.
+
+    It runs only after a successful, real write: never on a dry run, never if the
+    write failed. That ordering is what stops a submission being marked processed and
+    then lost.
+    """
+
+    def after_write(self, items: list[RawItem], ctx: RunContext) -> None: ...

@@ -233,6 +233,90 @@ class SheetStore:
             rows.append(dict(zip(header, padded, strict=False)))
         return rows
 
+    def read_rows_numbered(self, name: str) -> list[tuple[int, dict[str, Any]]]:
+        """Every data row with its 1-based sheet row number.
+
+        For tabs without a key column, such as `manual_submissions`, where people type
+        rows in by hand and a row number is the only address there is.
+        """
+        worksheet = self.worksheet(name)
+        values = self._call("read", f"read {name}", worksheet.get_all_values)
+        if not values:
+            return []
+        header = [h.strip() for h in values[0]]
+        numbered: list[tuple[int, dict[str, Any]]] = []
+        for offset, raw in enumerate(values[1:]):
+            if not any(str(cell).strip() for cell in raw):
+                continue
+            padded = list(raw) + [""] * (len(header) - len(raw))
+            numbered.append((offset + 2, dict(zip(header, padded, strict=False))))
+        return numbered
+
+    def update_cells_by_row(
+        self,
+        name: str,
+        updates: dict[int, dict[str, Any]],
+        *,
+        expect: dict[int, dict[str, Any]] | None = None,
+    ) -> int:
+        """Set cells by sheet row number. Returns how many rows were written.
+
+        People can insert, delete or sort rows between the read and this write, which
+        would shift every row number. `expect` guards against that: for each row it
+        names cell values that must still be there, and the tab is re-read just before
+        writing. A row whose content has moved is skipped, never overwritten — the
+        worst case is that a flag is set on the next run instead of this one.
+        """
+        if not updates:
+            return 0
+        spec = tab_spec(name)
+        self._reject_unknown_columns(spec, updates.values())
+        self._reject_human_columns(spec, updates.values())
+
+        rows = updates
+        if expect:
+            current = dict(self.read_rows_numbered(name))
+            rows = {}
+            for number, changes in updates.items():
+                wanted = expect.get(number, {})
+                found = current.get(number, {})
+                if all(str(found.get(k, "")).strip() == str(v).strip() for k, v in wanted.items()):
+                    rows[number] = changes
+            moved = len(updates) - len(rows)
+            if moved:
+                log.warning("sheets.rows_moved", extra={"tab": name, "skipped": moved})
+
+        payload: list[dict[str, Any]] = []
+        for number, changes in rows.items():
+            indices = sorted(spec.index_of(column) for column in changes)
+            by_index = {spec.index_of(c): to_cell(v) for c, v in changes.items()}
+            for run in _contiguous_runs(indices):
+                payload.append(
+                    {
+                        "range": (
+                            f"{rowcol_to_a1(number, run[0] + 1)}:"
+                            f"{rowcol_to_a1(number, run[-1] + 1)}"
+                        ),
+                        "values": [[by_index[i] for i in run]],
+                    }
+                )
+        if not payload:
+            return 0
+        if self.dry_run:
+            log.info("sheets.dry_run.update", extra={"tab": name, "ranges": len(payload)})
+            return len(rows)
+
+        worksheet = self.worksheet(name)
+        self._call(
+            "write",
+            f"update {name}",
+            worksheet.batch_update,
+            payload,
+            value_input_option=gspread.utils.ValueInputOption.raw,
+        )
+        log.info("sheets.updated", extra={"tab": name, "rows": len(rows)})
+        return len(rows)
+
     def read_column(self, name: str, column: str) -> list[str]:
         """One column's values, in sheet order. Cheaper than reading the whole tab."""
         spec = tab_spec(name)

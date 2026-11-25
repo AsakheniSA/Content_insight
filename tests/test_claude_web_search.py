@@ -272,3 +272,18 @@ def test_no_phrases_means_no_api_call():
     out = ClaudeWebSearchProvider(llm).search(SearchRequest(phrases=[]))
     assert out.results == []
     assert llm.requests == []
+
+
+def test_a_blocked_domain_gets_a_plain_words_explanation():
+    """Reddit blocks Anthropic's crawler; the error must say what to do about it."""
+    from tula_insights.llm.client import LlmClient
+
+    class Err:
+        message = (
+            "The following domains are not accessible to our user agent: ['reddit.com']."
+        )
+
+    text = LlmClient._explain_bad_request(Err())
+    assert "blocks Anthropic's crawler" in text
+    assert "config/sources.yaml" in text
+    assert "manual_submissions" in text

@@ -16,15 +16,28 @@ from .base import Collector, CollectorError, RunContext
 log = get_logger(__name__)
 
 
-def _reddit_search(ctx: RunContext) -> Collector:
-    from .reddit_search import RedditSearchCollector
+def _web_search(name: str) -> Callable[[RunContext], Collector]:
+    def build(ctx: RunContext) -> Collector:
+        from .web_search import WebSearchCollector
 
-    return RedditSearchCollector()
+        return WebSearchCollector(name)
+
+    return build
 
 
-#: Source name -> factory. Stages 7+ add their modules here as they land.
+def _manual(ctx: RunContext) -> Collector:
+    from .manual import ManualCollector
+
+    return ManualCollector()
+
+
+#: Source name -> factory. youtube and news_rss add their modules here in stage 7.
 _FACTORIES: dict[str, Callable[[RunContext], Collector]] = {
-    "reddit_search": _reddit_search,
+    "web_questions": _web_search("web_questions"),
+    # Disabled in sources.yaml: Reddit blocks Anthropic's crawler. Kept registered so it
+    # can be switched back on, unchanged, if that ever changes.
+    "reddit_search": _web_search("reddit_search"),
+    "manual": _manual,
 }
 
 

@@ -65,13 +65,13 @@ def test_items_are_written_with_status_new(config, store, wired):
             search_count=1,
         )
     ]
-    outcome = stage.run(config, source="reddit_search")
+    outcome = stage.run(config, source="web_questions")
 
     assert outcome.written == 1
     written = rows(store, "items")
     assert len(written) == 1
     assert written[0]["status"] == "new"
-    assert written[0]["source"] == "reddit_search"
+    assert written[0]["source"] == "web_questions"
     assert written[0]["item_id"]
     assert written[0]["run_id"] == outcome.run_id
 
@@ -79,11 +79,11 @@ def test_items_are_written_with_status_new(config, store, wired):
 def test_a_second_run_finding_the_same_thread_writes_nothing_new(config, store, wired):
     url = "https://reddit.com/r/dogs/comments/1abc2de/one/"
     wired.responses = [SearchResponse(results=[result(url)], search_count=1)]
-    first = stage.run(config, source="reddit_search")
+    first = stage.run(config, source="web_questions")
     assert first.written == 1
 
     wired.responses = [SearchResponse(results=[result(url)], search_count=1)]
-    second = stage.run(config, source="reddit_search")
+    second = stage.run(config, source="web_questions")
     assert second.written == 0
     assert second.duplicates >= 0
     assert len(rows(store, "items")) == 1, "the sheet must not grow a duplicate row"
@@ -94,7 +94,7 @@ def test_every_written_row_matches_the_items_schema(config, store, wired):
         SearchResponse(results=[result("https://reddit.com/r/dogs/comments/1abc2de/x/")],
                        search_count=1)
     ]
-    stage.run(config, source="reddit_search")
+    stage.run(config, source="web_questions")
     header = store.read_header("items")
     assert header == list(schema.ITEMS.columns)
 
@@ -104,7 +104,7 @@ def test_every_written_row_matches_the_items_schema(config, store, wired):
 
 def test_a_runs_row_records_the_searches_so_the_budget_can_see_them(config, store, wired):
     wired.responses = [SearchResponse(results=[], search_count=4)]
-    outcome = stage.run(config, source="reddit_search")
+    outcome = stage.run(config, source="web_questions")
 
     run_rows = rows(store, "runs")
     assert len(run_rows) == 1
@@ -122,7 +122,7 @@ def test_the_runs_row_carries_no_item_text(config, store, wired):
             search_count=1,
         )
     ]
-    stage.run(config, source="reddit_search")
+    stage.run(config, source="web_questions")
     assert "A very distinctive title" not in str(rows(store, "runs")[0])
 
 
@@ -134,7 +134,7 @@ def test_a_dry_run_writes_nothing_at_all(config, store, wired):
         SearchResponse(results=[result("https://reddit.com/r/dogs/comments/1abc2de/x/")],
                        search_count=1)
     ]
-    outcome = stage.run(config, source="reddit_search", dry_run=True)
+    outcome = stage.run(config, source="web_questions", dry_run=True)
 
     assert outcome.collected == 1, "it still does the work"
     assert outcome.written == 0
@@ -147,7 +147,7 @@ def test_a_dry_run_still_reports_what_it_would_have_done(config, store, wired):
         SearchResponse(results=[result("https://reddit.com/r/dogs/comments/1abc2de/x/")],
                        search_count=2)
     ]
-    outcome = stage.run(config, source="reddit_search", dry_run=True)
+    outcome = stage.run(config, source="web_questions", dry_run=True)
     text = "\n".join(stage.summary_lines(outcome))
     assert "dry run" in text
     assert "searches      2" in text
@@ -158,7 +158,7 @@ def test_a_dry_run_still_reports_what_it_would_have_done(config, store, wired):
 def test_a_failing_source_is_reported_with_its_real_reason(config, store, wired):
     wired.error = SearchError("web search is not enabled for this organisation")
     with pytest.raises(CollectorError, match="web search is not enabled"):
-        stage.run(config, source="reddit_search")
+        stage.run(config, source="web_questions")
 
 
 def test_a_crashing_collector_does_not_take_the_stage_down_silently(config, store, monkeypatch):
@@ -166,14 +166,14 @@ def test_a_crashing_collector_does_not_take_the_stage_down_silently(config, stor
     monkeypatch.setattr(stage, "_build_search", lambda config, result: (None, FakeSearchProvider()))
 
     class Exploding:
-        name = "reddit_search"
+        name = "web_questions"
 
         def collect(self, cfg, ctx):
             raise ZeroDivisionError("unexpected")
 
     monkeypatch.setattr(stage, "build_collector", lambda name, ctx: Exploding())
     with pytest.raises(CollectorError, match="ZeroDivisionError"):
-        stage.run(config, source="reddit_search")
+        stage.run(config, source="web_questions")
 
 
 def test_a_missing_api_key_is_reported_clearly(config_dir, store, monkeypatch):
@@ -182,7 +182,7 @@ def test_a_missing_api_key_is_reported_clearly(config_dir, store, monkeypatch):
     monkeypatch.setattr(stage, "open_store", lambda config, dry_run=False: store)
 
     with pytest.raises(CollectorError, match="ANTHROPIC_API_KEY"):
-        stage.run(load_config(), source="reddit_search")
+        stage.run(load_config(), source="web_questions")
 
 
 # --- run ids -------------------------------------------------------------------------
@@ -215,3 +215,41 @@ def test_the_job_summary_is_written_when_actions_asks_for_one(tmp_path, monkeypa
 def test_no_job_summary_outside_actions(monkeypatch):
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     stage.write_job_summary(stage.CollectResult(run_id="r1"))  # must not raise
+
+
+# --- after-write hooks ---------------------------------------------------------------
+
+
+def test_manual_rows_are_marked_processed_by_a_real_run(config, store, wired):
+    store.append_rows(
+        "manual_submissions",
+        [{"question_or_quote": "Is a crate or a harness safer in the car?", "platform": "instagram"}],
+    )
+    stage.run(config, source="manual")
+    assert store.read_rows("manual_submissions")[0]["processed"] == "TRUE"
+    assert len(store.read_rows("items")) == 1
+
+
+def test_a_dry_run_leaves_manual_rows_unprocessed(config, store, wired):
+    store.append_rows("manual_submissions", [{"question_or_quote": "How do I calm my cat?"}])
+    stage.run(config, source="manual", dry_run=True)
+    assert store.read_rows("manual_submissions")[0]["processed"] == ""
+    assert store.read_rows("items") == []
+
+
+def test_a_failed_write_leaves_manual_rows_unprocessed(config, store, wired, monkeypatch):
+    """Marking a row processed before its item is safely saved would lose it."""
+    from tula_insights.store.sheets import SheetStoreError
+
+    store.append_rows("manual_submissions", [{"question_or_quote": "Can my dog fly?"}])
+    original = store.append_rows
+
+    def failing_append(name, rows):
+        if name == "items":
+            raise SheetStoreError("quota exceeded")
+        return original(name, rows)
+
+    monkeypatch.setattr(store, "append_rows", failing_append)
+    with pytest.raises(SheetStoreError):
+        stage.run(config, source="manual")
+    assert store.read_rows("manual_submissions")[0]["processed"] == ""
