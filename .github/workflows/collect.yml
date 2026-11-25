@@ -31,10 +31,10 @@ on:
 permissions:
   contents: read
 
-# One collect run at a time. The sheet assumes a single writer, and two runs would
-# both read the same item ids and then both append the same rows.
+# One sheet-writing run at a time, shared with classify.yml. The sheet assumes a
+# single writer: two runs would read the same rows and then write over each other.
 concurrency:
-  group: tula-insights-collect
+  group: tula-insights-sheet
   cancel-in-progress: false
 
 jobs:

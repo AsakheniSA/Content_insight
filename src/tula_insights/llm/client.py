@@ -31,58 +31,120 @@ class LlmError(RuntimeError):
     """Raised when a Claude API request cannot be completed."""
 
 
+class BatchNotFound(LlmError):
+    """The API no longer knows this batch — results are kept for 29 days."""
+
+
+def estimate_tokens(payload: Any) -> int:
+    """A rough, deliberately generous token estimate: about 3 characters per token."""
+    import json
+
+    try:
+        text = json.dumps(payload, default=str)
+    except (TypeError, ValueError):
+        text = str(payload)
+    return len(text) // 3 + 1
+
+
+#: Writing to the prompt cache costs this multiple of the input price (5-minute TTL).
+CACHE_WRITE_MULTIPLIER = 1.25
+
+
 @dataclass
-class Usage:
-    """Running totals for one run. Counts only — never prompt or response text."""
+class ModelUsage:
+    """Token counts for one model under one pricing mode."""
 
     tokens_in: int = 0
     tokens_out: int = 0
     tokens_cache_read: int = 0
     tokens_cache_write: int = 0
-    web_search_requests: int = 0
-    calls_by_model: dict[str, int] = field(default_factory=dict)
+    calls: int = 0
 
-    def add_response(self, response: Any, model: str) -> None:
-        """Accumulate the usage block of one API response."""
+
+@dataclass
+class Usage:
+    """Running totals for one run. Counts only — never prompt or response text.
+
+    Tokens are kept per model and per pricing mode (standard or batch), because a run
+    can mix both — the classifier sends a batch, then retries a few items one by one —
+    and each is priced differently. An earlier version kept one pool of tokens and
+    priced it once per model used, which would double-count as soon as a second model
+    or mode appeared.
+    """
+
+    standard: dict[str, ModelUsage] = field(default_factory=dict)
+    batch: dict[str, ModelUsage] = field(default_factory=dict)
+    web_search_requests: int = 0
+
+    def add_response(self, response: Any, model: str, *, batch: bool = False) -> None:
+        """Accumulate the usage block of one API response (or one batch result)."""
         usage = getattr(response, "usage", None)
         if usage is None:
             return
-        self.tokens_in += getattr(usage, "input_tokens", 0) or 0
-        self.tokens_out += getattr(usage, "output_tokens", 0) or 0
-        self.tokens_cache_read += getattr(usage, "cache_read_input_tokens", 0) or 0
-        self.tokens_cache_write += getattr(usage, "cache_creation_input_tokens", 0) or 0
+        bucket = (self.batch if batch else self.standard).setdefault(model, ModelUsage())
+        bucket.tokens_in += getattr(usage, "input_tokens", 0) or 0
+        bucket.tokens_out += getattr(usage, "output_tokens", 0) or 0
+        bucket.tokens_cache_read += getattr(usage, "cache_read_input_tokens", 0) or 0
+        bucket.tokens_cache_write += getattr(usage, "cache_creation_input_tokens", 0) or 0
+        bucket.calls += 1
         server = getattr(usage, "server_tool_use", None)
         if server is not None:
             self.web_search_requests += getattr(server, "web_search_requests", 0) or 0
-        self.calls_by_model[model] = self.calls_by_model.get(model, 0) + 1
 
-    def merge(self, other: Usage) -> None:
-        self.tokens_in += other.tokens_in
-        self.tokens_out += other.tokens_out
-        self.tokens_cache_read += other.tokens_cache_read
-        self.tokens_cache_write += other.tokens_cache_write
-        self.web_search_requests += other.web_search_requests
-        for model, count in other.calls_by_model.items():
-            self.calls_by_model[model] = self.calls_by_model.get(model, 0) + count
+    def _all(self) -> list[ModelUsage]:
+        return [*self.standard.values(), *self.batch.values()]
 
-    def estimate_usd(self, budget: BudgetConfig, *, batch: bool = False) -> float:
-        """Estimated spend, from the price table in budget.yaml."""
+    @property
+    def tokens_in(self) -> int:
+        return sum(u.tokens_in for u in self._all())
+
+    @property
+    def tokens_out(self) -> int:
+        return sum(u.tokens_out for u in self._all())
+
+    @property
+    def tokens_cache_read(self) -> int:
+        return sum(u.tokens_cache_read for u in self._all())
+
+    @property
+    def tokens_cache_write(self) -> int:
+        return sum(u.tokens_cache_write for u in self._all())
+
+    @property
+    def calls_by_model(self) -> dict[str, int]:
+        calls: dict[str, int] = {}
+        for pool in (self.standard, self.batch):
+            for model, used in pool.items():
+                calls[model] = calls.get(model, 0) + used.calls
+        return calls
+
+    def estimate_usd(self, budget: BudgetConfig) -> float:
+        """Estimated spend, from the price table in budget.yaml.
+
+        Input tokens reported by the API exclude cached ones, which are priced
+        separately: cache reads at the cache-read rate, cache writes at
+        CACHE_WRITE_MULTIPLIER x the input rate. Batch tokens use the batch rates.
+        """
         total = (
-            self.web_search_requests
-            / 1000.0
-            * budget.prices.claude_web_search_per_1000_searches
+            self.web_search_requests / 1000.0 * budget.prices.claude_web_search_per_1000_searches
         )
-        for model, _calls in self.calls_by_model.items():
-            try:
-                price = budget.price_for(model)
-            except Exception:
-                log.warning("llm.unpriced_model", extra={"model": model})
-                continue
-            per_in = (price.batch_input_per_mtok if batch else None) or price.input_per_mtok
-            per_out = (price.batch_output_per_mtok if batch else None) or price.output_per_mtok
-            total += self.tokens_in / 1_000_000 * per_in
-            total += self.tokens_out / 1_000_000 * per_out
-            total += self.tokens_cache_read / 1_000_000 * price.cache_read_per_mtok
+        for pool, is_batch in ((self.standard, False), (self.batch, True)):
+            for model, used in pool.items():
+                try:
+                    price = budget.price_for(model)
+                except Exception:
+                    log.warning("llm.unpriced_model", extra={"model": model})
+                    continue
+                per_in = (price.batch_input_per_mtok if is_batch else None) or price.input_per_mtok
+                per_out = (
+                    (price.batch_output_per_mtok if is_batch else None) or price.output_per_mtok
+                )
+                total += used.tokens_in / 1_000_000 * per_in
+                total += used.tokens_out / 1_000_000 * per_out
+                total += used.tokens_cache_read / 1_000_000 * price.cache_read_per_mtok
+                total += (
+                    used.tokens_cache_write / 1_000_000 * per_in * CACHE_WRITE_MULTIPLIER
+                )
         return round(total, 6)
 
     def as_dict(self) -> dict[str, int]:
@@ -161,15 +223,15 @@ class LlmClient:
         """Refuse a request whose input is near the long-context price cliff.
 
         Prompts over the threshold in budget.yaml are billed at a multiple of standard
-        rates. Rather than discover that on the invoice, count first and refuse.
+        rates. Rather than discover that on the invoice, count first and refuse — but
+        only when a rough local estimate says it could matter, so that hundreds of
+        small classification calls don't each cost an extra round trip.
         """
         cap = self.budget.limits.max_input_tokens_per_request
-        countable = {
-            key: value
-            for key, value in kwargs.items()
-            if key in {"messages", "system", "tools"}
-        }
+        countable = {k: v for k, v in kwargs.items() if k in {"messages", "system", "tools"}}
         if "messages" not in countable:
+            return
+        if estimate_tokens(countable) < cap // 2:
             return
         try:
             counted = self.client.messages.count_tokens(model=model, **countable)
@@ -185,6 +247,49 @@ class LlmClient:
                 f"threshold is {self.budget.limits.long_context_threshold_tokens} tokens, "
                 f"beyond which requests are billed at a multiple of standard rates."
             )
+
+    # --- Message Batches -------------------------------------------------------------
+
+    def create_batch(self, requests: list[dict[str, Any]]) -> Any:
+        """Submit a Message Batch. `requests` are {"custom_id", "params"} dicts."""
+        cap = self.budget.limits.max_input_tokens_per_request
+        for request in requests:
+            if estimate_tokens(request["params"]) > cap:
+                raise LlmError(
+                    f"Batch request {request['custom_id']} is estimated over the "
+                    f"{cap}-token input cap; refusing to submit."
+                )
+        return self._with_retry(
+            lambda: self.client.messages.batches.create(requests=requests),
+            what="messages.batches.create",
+        )
+
+    def retrieve_batch(self, batch_id: str) -> Any:
+        return self._with_retry(
+            lambda: self.client.messages.batches.retrieve(batch_id),
+            what="messages.batches.retrieve",
+        )
+
+    def batch_results(self, batch_id: str) -> list[Any]:
+        """Every result of an ended batch, read in full. Order is not guaranteed."""
+        return self._with_retry(
+            lambda: list(self.client.messages.batches.results(batch_id)),
+            what="messages.batches.results",
+        )
+
+    def _with_retry(self, func, *, what: str) -> Any:
+        try:
+            return call_with_retry(
+                func,
+                what=what,
+                attempts=self.max_retries + 1,
+                retry_on=(anthropic.APIError, anthropic.APIConnectionError),
+                should_retry=_is_retryable,
+            )
+        except anthropic.NotFoundError as error:
+            raise BatchNotFound(f"{what}: batch not found (it may have expired)") from error
+        except anthropic.APIError as error:
+            raise LlmError(f"{what} failed (HTTP {_status_of(error)}).") from error
 
     @staticmethod
     def _explain_bad_request(error: anthropic.BadRequestError) -> str:

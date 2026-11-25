@@ -43,6 +43,25 @@ run:
   local_utc_offset_hours: 2
   local_timezone_label: "SAST"
 
+classify:
+  # The brief's choice for every bulk step. Must have a price in budget.yaml.
+  model: "claude-haiku-5-5"
+  # Haiku 5.5 defaults to "medium". Classification gains little from more thinking,
+  # and thinking tokens are billed as output.
+  effort: "low"
+  # Includes any thinking. The answer itself is a small JSON object.
+  max_tokens: 2048
+  max_items_per_run: 500
+  # Scheduled runs use the Batch API (half price). A run waits this long for its own
+  # batch, then moves on; anything unfinished is collected by the next run.
+  batch_poll_minutes: 15
+  batch_poll_interval_seconds: 30
+  # A dry run classifies this many items one by one and writes nothing.
+  dry_run_sample: 10
+  # Sync mode saves results to the sheet every this many items, so a crash loses little.
+  write_every: 50
+  max_question_chars: 300
+
 logging:
   level: "INFO"
   format: "json"

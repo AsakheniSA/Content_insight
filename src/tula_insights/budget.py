@@ -156,6 +156,18 @@ class UsageLedger:
             )
         return CapDecision(True)
 
+    def allows_spend(self, estimate_usd: float) -> CapDecision:
+        """Whether a stage estimated to cost `estimate_usd` fits the monthly Claude cap."""
+        cap = self.config.budget.monthly_caps.claude_usd
+        if self.spent.usd_this_month + estimate_usd > cap:
+            return CapDecision(
+                False,
+                f"monthly Claude spend cap would be exceeded "
+                f"(${self.spent.usd_this_month:.2f} spent + ${estimate_usd:.2f} estimated, "
+                f"cap ${cap:.2f})",
+            )
+        return CapDecision(True)
+
     def remaining_web_searches(self) -> int:
         """How many more searches are allowed right now, across every cap."""
         budget = self.config.budget

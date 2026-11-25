@@ -452,12 +452,32 @@ class LoggingSettings(Base):
         return value
 
 
+class ClassifySettings(Base):
+    model: str
+    effort: str = "low"
+    max_tokens: int = Field(default=2048, gt=0)
+    max_items_per_run: int = Field(default=500, gt=0)
+    batch_poll_minutes: float = Field(default=15.0, ge=0.0)
+    batch_poll_interval_seconds: float = Field(default=30.0, gt=0.0)
+    dry_run_sample: int = Field(default=10, gt=0)
+    write_every: int = Field(default=50, gt=0)
+    max_question_chars: int = Field(default=300, gt=20)
+
+    @field_validator("effort")
+    @classmethod
+    def _known_effort(cls, value: str) -> str:
+        if value not in {"low", "medium", "high", "xhigh", "max"}:
+            raise ValueError("effort must be one of low, medium, high, xhigh, max")
+        return value
+
+
 class Settings(Base):
     version: int
     sheet: SheetSettings
     retention: RetentionSettings
     run: RunSettings
     logging: LoggingSettings
+    classify: ClassifySettings
 
 
 # --- environment ---------------------------------------------------------------------
@@ -588,6 +608,13 @@ class AppConfig(Base):
         if angle_model not in self.budget.prices.models:
             raise ValueError(
                 f"scoring.publish.angle_model is {angle_model!r} but budget.yaml has no "
+                f"price for it, so its cost could not be tracked"
+            )
+
+        classify_model = self.settings.classify.model
+        if classify_model not in self.budget.prices.models:
+            raise ValueError(
+                f"settings.classify.model is {classify_model!r} but budget.yaml has no "
                 f"price for it, so its cost could not be tracked"
             )
 

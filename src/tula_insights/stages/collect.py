@@ -29,11 +29,12 @@ from ..collectors.registry import build_collector, plan_sources
 from ..config import AppConfig, ConfigError
 from ..llm.client import LlmClient
 from ..models import RawItem, RunStats
-from ..schema import ITEMS, RUNS
+from ..schema import ITEMS
 from ..search.claude_web_search import ClaudeWebSearchProvider
 from ..store.sheets import SheetStore, SheetStoreError, open_store
 from ..utils.clock import now_utc
 from ..utils.logging import get_logger
+from .runs import record_run
 
 log = get_logger(__name__)
 
@@ -288,7 +289,7 @@ def _record_run(
     stats = RunStats(
         run_id=result.run_id,
         trigger="schedule" if os.environ.get("GITHUB_EVENT_NAME") == "schedule" else "dispatch",
-        inputs={"stage": "collect", "source": source, "category": category},
+        inputs={"collect": {"source": source, "category": category}},
         status="partial" if result.failed_sources else "success",
         items_collected_by_source=dict(result.items_by_source),
         tokens_in=usage.tokens_in if usage else 0,
@@ -307,7 +308,7 @@ def _record_run(
         finished_at=now_utc(),
     )
     try:
-        store.append_rows(RUNS.name, [stats.to_sheet_row()])
+        record_run(store, stats)
     except SheetStoreError as error:
         log.warning("collect.run_row_failed", extra={"error_type": type(error).__name__})
         result.warnings.append(f"Could not write the runs row: {error}")

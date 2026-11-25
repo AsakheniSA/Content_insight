@@ -18,7 +18,6 @@ log = get_logger(__name__)
 
 #: Stage name -> the build stage it arrives in. Filled in as each one lands.
 PENDING_STAGES = {
-    "classify": 3,
     "score": 4,
     "publish": 5,
     "archive": 8,
@@ -32,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "stage",
-        choices=["validate-config", "setup-sheet", "collect", *PENDING_STAGES],
+        choices=["validate-config", "setup-sheet", "collect", "classify", *PENDING_STAGES],
         help="which pipeline stage to run",
     )
     parser.add_argument(
@@ -83,6 +82,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _validate_config(config)
     if args.stage == "setup-sheet":
         return _setup_sheet(config, dry_run=args.dry_run)
+    if args.stage == "classify":
+        return _classify(config, source=args.source, sync=args.sync, dry_run=args.dry_run)
     if args.stage == "collect":
         return _collect(
             config, source=args.source, category=args.category, dry_run=args.dry_run
@@ -95,6 +96,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         file=sys.stderr,
     )
     return 3
+
+
+def _classify(config, *, source: str, sync: bool, dry_run: bool) -> int:
+    from .stages import classify as classify_stage
+
+    try:
+        result = classify_stage.run(config, sync=sync, dry_run=dry_run, source=source)
+    except classify_stage.ClassifyError as error:
+        print(f"Classify failed:\n  {error}", file=sys.stderr)
+        return 1
+    print("\n".join(classify_stage.summary_lines(result)))
+    classify_stage.write_job_summary(result)
+    return 0
 
 
 def _collect(config, *, source: str, category: str, dry_run: bool) -> int:

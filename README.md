@@ -7,8 +7,9 @@ publishes a ranked daily feed that Irene and Gigi's content pipeline reads.
 Everything is stored in one Google Sheet. Everything runs on GitHub Actions. The only
 paid service is the Claude API.
 
-> **Build status: stage 2 of 10 complete.** Scaffold, configuration, the Sheets schema
-> and discovery (general web search, YouTube comments and manual submissions) are in place. The classifier, scoring and feed stages land next —
+> **Build status: stage 3 of 10 complete.** Scaffold, configuration, the Sheets schema,
+> discovery (general web search, YouTube comments, manual submissions) and the classifier
+> are in place. The classifier, scoring and feed stages land next —
 > see [`IMPLEMENTATION_BRIEF.md`](IMPLEMENTATION_BRIEF.md) section 11 for the order, and
 > the [Build progress](#build-progress) table below for where things stand.
 
@@ -171,6 +172,27 @@ In Actions, use the **Collect (manual)** workflow (Actions → Collect (manual) 
 workflow). It is dispatch-only and defaults to a dry run; the scheduled pipeline that
 chains every stage arrives in stage 6.
 
+Classify, which reads every `new` item and fills in its category, underlying question
+and pain point:
+
+```bash
+python -m tula_insights classify --dry-run --log-format plain
+```
+
+```bash
+python -m tula_insights classify --sync
+```
+
+```bash
+python -m tula_insights classify
+```
+
+`--dry-run` classifies a sample of 10 and writes nothing. `--sync` sends one request per
+item and saves as it goes. With neither, items go as one Message Batch at half price:
+the run waits up to 15 minutes for it, and anything unfinished is collected by the next
+run. In Actions, use **Classify (manual)**; it and **Collect (manual)** share one lock,
+so they never write to the sheet at the same time.
+
 Stages that are not built yet exit with code 3 and say which build stage they arrive in.
 Once they land, each takes the same options:
 
@@ -211,7 +233,7 @@ Everything tunable lives in `config/`. No magic numbers in code.
 | `keywords.yaml` | Keyword sets per category and region; seed phrases |
 | `scoring.yaml` | Dedupe thresholds, score weights, publishing rules |
 | `budget.yaml` | Monthly and daily spend caps, and the price table |
-| `settings.yaml` | Sheet sizing, retention, Sheets rate limits, logging |
+| `settings.yaml` | Sheet sizing, retention and platform storage limits, Sheets rate limits, the classifier (model, effort, batch timing), logging |
 
 **Adding manual submissions.** Anyone on the team can add rows to the
 `manual_submissions` tab: paste the question or quote into `question_or_quote`, the link
@@ -273,8 +295,8 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 |---|---|---|
 | 1 | Scaffold, config, Sheets schema | **Done** |
 | 2 | Search collector + `SearchProvider` (`web_questions`; `youtube` and `manual` brought forward from stage 7) | **Done** |
-| 3 | Classifier (Claude Haiku, batch + sync) | Next |
-| 4 | Dedupe + scoring | — |
+| 3 | Classifier (Claude Haiku, batch + sync) | **Done** |
+| 4 | Dedupe + scoring | Next |
 | 5 | Publish feed | — |
 | 6 | Full `pipeline.yml` | — |
 | 7 | `news_rss` (the rest landed in stage 2) | — |
@@ -283,6 +305,28 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 | 10 | Full README (brief section 12) | — |
 
 ---
+
+## How classification works
+
+Each `new` item goes to Claude Haiku 5.5 with a system prompt built from
+`prompts/classify_extract.md` and the categories in `categories.yaml`. The reply is
+constrained to a JSON schema built from the same YAML, so the category is always one of
+the listed ids. It is then checked in code for what the schema can't enforce:
+confidence between 0 and 1, a question whenever an item is relevant, and tags only on
+`general_pet_care`. A reply that fails is retried once with the reason stated, then the
+item is marked `error`.
+
+Item text is treated as data: the prompt tells the model to ignore any instructions
+inside it, and items are wrapped so their text can't break out. Questions are rewritten
+neutrally, in South African English, with personal details removed and scrubbed again
+in code.
+
+Every row records the `model` and a `prompt_version` such as
+`classify_extract:1/categories:1`. **Change the prompt or the categories, bump the
+version**, so rows stay traceable to the rules that made them.
+
+Cost is roughly US$0.05 a day for about 400 items in batch mode. The system prompt
+(about 1,700 tokens) is cached, and the run checks the monthly cap before it starts.
 
 ## Known limitations
 
