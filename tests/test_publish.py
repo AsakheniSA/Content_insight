@@ -219,7 +219,16 @@ def test_a_failed_angle_still_serves_the_insight(config, store):
     seed(store, insight("a", 0.8))
     result = run(config, store, FakeLlm([LlmError("down")]))
     assert result.served == 1 and feed(store)[0].suggested_angle == ""
-    assert result.angles_failed == 1 and result.warnings
+    assert result.angles_failed == 1
+    assert "API call failed" in result.warnings[0] and "airline_transport" in result.warnings[0]
+
+
+def test_the_failure_reason_says_why_without_quoting_the_angle(config, store):
+    seed(store, insight("a", 0.8))
+    llm = FakeLlm(["Wait 30 days.", "Wait 21 days."])
+    result = run(config, store, llm)
+    assert "contained a number" in result.warnings[0]
+    assert "Wait" not in result.warnings[0]
 
 
 def test_a_dry_run_writes_nothing(config, store):

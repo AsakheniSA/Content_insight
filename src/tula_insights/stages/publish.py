@@ -249,6 +249,7 @@ def _angle(writer, llm, insight: Insight, pains: list[str], result: PublishResul
     if writer is None or llm is None:
         return ""
     problem = None
+    reason = "unknown"
     for _attempt in range(2):
         try:
             reply = llm.create(**writer.request_params(insight, pain_points=pains, problem=problem))
@@ -256,13 +257,20 @@ def _angle(writer, llm, insight: Insight, pains: list[str], result: PublishResul
             result.angles_written += 1
             return angle
         except ClassificationInvalid as error:
+            # The reason text is ours ("it contained a number", "it was 190 characters"),
+            # never the angle or the question, so it is safe in a public log.
+            reason = str(error)
             if not error.retryable:
                 break
-            problem = str(error)
+            problem = reason
         except LlmError:
+            reason = "the API call failed"
             break
     result.angles_failed += 1
-    result.warnings.append("An angle could not be written; that insight was served without one.")
+    result.warnings.append(
+        f"Rank {len(result.served_rows) + 1} ({insight.category}) was served without an "
+        f"angle: {reason}."
+    )
     return ""
 
 
