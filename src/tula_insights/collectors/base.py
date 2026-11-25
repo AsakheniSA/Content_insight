@@ -48,9 +48,14 @@ class RunContext:
     known_item_ids: set[str] = field(default_factory=set)
     #: Non-fatal problems, surfaced in the job summary and the `runs` row.
     warnings: list[str] = field(default_factory=list)
+    #: Named counts for the run summary. Numbers only — the summary is public.
+    metrics: dict[str, int] = field(default_factory=dict)
 
     def warn(self, message: str) -> None:
         self.warnings.append(message)
+
+    def count(self, name: str, amount: int = 1) -> None:
+        self.metrics[name] = self.metrics.get(name, 0) + amount
 
     def require_search(self) -> SearchProvider:
         if self.search is None:

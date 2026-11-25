@@ -241,3 +241,59 @@ def test_only_the_sources_regions_are_searched(config, source):
     za_only = source.model_copy(update={"regions": ["za"]})
     collector().collect(za_only, make_ctx(config, provider))
     assert {r.region for r in provider.requests} == {"za"}
+
+
+# --- measuring what comes back -------------------------------------------------------
+
+
+def test_reddit_results_and_queries_are_counted(config, source):
+    provider = FakeSearchProvider([
+        SearchResponse(
+            results=[
+                result("https://www.reddit.com/r/dogs/comments/1abc2de/x/"),
+                result("https://old.reddit.com/r/cats/comments/2bcd3ef/y/"),
+                result("https://example.com/pet-travel"),
+            ],
+            queries=["dog car sick reddit", "dog car sick forum", "dog car sick"],
+            search_count=3,
+        )
+    ])
+    context = make_ctx(config, provider)
+    collector().collect(source, context)
+
+    assert context.metrics["web_questions.results_from_reddit"] == 2
+    assert context.metrics["web_questions.queries_mentioning_reddit"] == 1
+    assert context.metrics["web_questions.queries"] == 3
+    assert context.metrics["web_questions.results"] == 3
+    assert context.metrics["web_questions.distinct_sites"] == 3
+
+
+def test_a_lookalike_domain_is_not_counted_as_reddit():
+    from tula_insights.collectors.web_search import is_reddit
+
+    assert is_reddit("https://www.reddit.com/r/x/")
+    assert is_reddit("https://old.reddit.com/r/x/")
+    assert not is_reddit("https://notreddit.com/r/x/")
+    assert not is_reddit("https://reddit.com.evil.example/r/x/")
+
+
+def test_the_query_hint_reaches_the_model(config, source):
+    provider = FakeSearchProvider([SearchResponse() for _ in range(10)])
+    collector().collect(source, make_ctx(config, provider))
+    assert 'word "reddit"' in provider.requests[0].intent
+
+
+def test_no_hint_means_the_intent_is_unchanged(config, source):
+    provider = FakeSearchProvider([SearchResponse() for _ in range(10)])
+    plain = source.model_copy(update={"settings": {**source.settings, "query_hint": ""}})
+    collector().collect(plain, make_ctx(config, provider))
+    assert "reddit" not in provider.requests[0].intent.lower()
+
+
+def test_metrics_carry_no_text():
+    """The run summary is public: every metric must be a plain number."""
+    from tula_insights.stages.collect import CollectResult, summary_lines
+
+    outcome = CollectResult(run_id="r", metrics={"web_questions.results_from_reddit": 4})
+    text = "\n".join(summary_lines(outcome))
+    assert "web_questions.results_from_reddit" in text and "4" in text

@@ -68,6 +68,16 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
         run: python -m tula_insights validate-config
 
+      # Creates any missing tab, so nobody has to run setup_sheet.py by hand. Safe on
+      # every run: it never rewrites an existing header, only reports differences —
+      # and a header problem stops the run here, before anything is spent. On a dry
+      # run it reports what it would create and creates nothing.
+      - name: Make sure the sheet's tabs exist
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+        run: python scripts/setup_sheet.py ${{ inputs.dry_run && '--dry-run' || '' }}
+
       - name: Collect
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

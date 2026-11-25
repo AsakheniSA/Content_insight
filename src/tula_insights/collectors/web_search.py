@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 
 from ..config import KeywordSet, ResolvedSource
 from ..models import RawItem
@@ -81,6 +82,20 @@ def parse_page_age(raw: str | None, *, now: datetime | None = None) -> datetime 
     return None
 
 
+def host_of(url: str) -> str:
+    """The host of a URL, lowercased, without a leading `www.`."""
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return ""
+    return host[4:] if host.startswith("www.") else host
+
+
+def is_reddit(url: str) -> bool:
+    host = host_of(url)
+    return host == "reddit.com" or host.endswith(".reddit.com")
+
+
 def submission_id(url: str) -> str | None:
     """The Reddit submission id in a thread URL, if it is one."""
     match = _SUBMISSION_RE.search(url)
@@ -103,6 +118,7 @@ class WebSearchCollector:
         sets_per_run = int(settings.get("keyword_sets_per_run", 6))
         basis = list(settings.get("engagement_basis") or ["result_position", "query_recurrence"])
         intent_template = str(settings.get("intent") or DEFAULT_INTENT)
+        query_hint = " ".join(str(settings.get("query_hint") or "").split())
 
         plan = self._plan(cfg, ctx, limit=sets_per_run)
         if not plan:
@@ -137,7 +153,7 @@ class WebSearchCollector:
 
             request = SearchRequest(
                 phrases=list(keyword_set.phrases),
-                intent=self._intent(ctx, keyword_set, intent_template),
+                intent=self._intent(ctx, keyword_set, intent_template, query_hint),
                 allowed_domains=allowed_domains,
                 blocked_domains=blocked_domains,
                 max_uses=min(max_uses, allowance),
@@ -158,6 +174,7 @@ class WebSearchCollector:
 
             searches_done += response.search_count
             ctx.ledger.record_web_searches(response.search_count)
+            self._measure(response, ctx)
             for code in response.error_codes:
                 ctx.warn(f"{self.name}: search tool error {code}")
 
@@ -211,13 +228,31 @@ class WebSearchCollector:
         return rotated[: max(1, limit)]
 
     @staticmethod
-    def _intent(ctx: RunContext, keyword_set: KeywordSet, template: str) -> str:
+    def _intent(ctx: RunContext, keyword_set: KeywordSet, template: str, hint: str = "") -> str:
         try:
             category = ctx.config.categories.by_id(keyword_set.category)
             subject = f"{category.name} — {category.description}"
         except KeyError:
             subject = "pet care"
-        return template.replace("{category}", subject)
+        intent = template.replace("{category}", subject)
+        return f"{intent}\n\n{hint}" if hint else intent
+
+    def _measure(self, response: SearchResponse, ctx: RunContext) -> None:
+        """Counts for the run summary: what the searches asked for and got back.
+
+        Numbers only. The reddit counts tell apart the two ways Reddit could be missing:
+        the model never asked for it, or it asked and the search engine returned none.
+        """
+        prefix = self.name
+        ctx.count(f"{prefix}.queries", len(response.queries))
+        ctx.count(
+            f"{prefix}.queries_mentioning_reddit",
+            sum("reddit" in query.lower() for query in response.queries),
+        )
+        ctx.count(f"{prefix}.results", len(response.results))
+        ctx.count(f"{prefix}.results_from_reddit", sum(is_reddit(r.url) for r in response.results))
+        hosts = {host_of(r.url) for r in response.results if r.url}
+        ctx.count(f"{prefix}.distinct_sites", len(hosts))
 
     # --- conversion ------------------------------------------------------------------
 

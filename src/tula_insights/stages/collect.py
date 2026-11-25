@@ -47,6 +47,8 @@ class CollectResult:
     skipped: list[str] = field(default_factory=list)
     est_cost_usd: float = 0.0
     dry_run: bool = False
+    #: Named counts from collectors. Numbers only — this is printed in public logs.
+    metrics: dict[str, int] = field(default_factory=dict)
 
     @property
     def collected(self) -> int:
@@ -121,6 +123,8 @@ def run(
             continue
 
         result.warnings.extend(ctx.warnings)
+        for name, value in ctx.metrics.items():
+            result.metrics[name] = result.metrics.get(name, 0) + value
         before = len(items)
         items = _drop_duplicates(items, known)
         result.duplicates += before - len(items)
@@ -299,6 +303,9 @@ def summary_lines(result: CollectResult) -> list[str]:
         f"  searches      {result.searches}",
         f"  est. cost     ${result.est_cost_usd:.4f}",
     ]
+    if result.metrics:
+        lines += ["", "  Measured:"]
+        lines += [f"    {name:<40} {value}" for name, value in sorted(result.metrics.items())]
     if result.skipped:
         lines += ["", "  Skipped by a budget cap:"]
         lines += [f"    - {s}" for s in result.skipped]
@@ -333,6 +340,10 @@ def write_job_summary(result: CollectResult) -> None:
 | Web searches | {result.searches} |
 | Estimated cost | ${result.est_cost_usd:.4f} |
 """
+    if result.metrics:
+        body += "\n| Measure | Count |\n|---|---|\n" + "".join(
+            f"| {name} | {value} |\n" for name, value in sorted(result.metrics.items())
+        )
     if result.skipped:
         body += "\n**Budget caps hit**\n" + "".join(f"- {s}\n" for s in result.skipped)
     if result.failed_sources:
