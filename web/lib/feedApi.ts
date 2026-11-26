@@ -1,7 +1,8 @@
 /**
  * GET /api/feed?date=YYYY-MM-DD — the day's feed as JSON, for Irene and Gigi's pipeline.
  *
- * Send the token as `Authorization: Bearer <FEED_API_TOKEN>` (or `X-Feed-Token`).
+ * Open unless FEED_API_TOKEN is set; then send it as `Authorization: Bearer <token>`
+ * (or `X-Feed-Token`).
  * `date` defaults to today in SAST. Kept free of Next.js imports so it can be tested and
  * moved to another host unchanged.
  */
@@ -31,12 +32,11 @@ export function publicEntry(entry: FeedEntry) {
 }
 
 export async function handleFeedRequest(request: Request, deps: FeedApiDeps): Promise<Response> {
-  if (!deps.token) {
-    return json(503, { error: "FEED_API_TOKEN is not set on the server, so the feed API is switched off." });
-  }
-  const given = tokenFrom(request.headers);
-  if (!given || !safeEqual(given, deps.token)) {
-    return json(401, { error: "Missing or wrong token. Send Authorization: Bearer <FEED_API_TOKEN>." });
+  if (deps.token) {
+    const given = tokenFrom(request.headers);
+    if (!given || !safeEqual(given, deps.token)) {
+      return json(401, { error: "Missing or wrong token. Send Authorization: Bearer <FEED_API_TOKEN>." });
+    }
   }
 
   const params = new URL(request.url).searchParams;

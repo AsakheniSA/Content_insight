@@ -9,7 +9,7 @@ const LINKS = [
   { href: "/runs", label: "Runs" },
 ];
 
-export function Nav() {
+export function Nav({ gated }: { gated: boolean }) {
   const path = usePathname();
   if (path === "/login") return null;
   return (
@@ -22,9 +22,11 @@ export function Nav() {
           </Link>
         );
       })}
-      <form action="/logout" method="post">
-        <button type="submit" className="link-button">Sign out</button>
-      </form>
+      {gated && (
+        <form action="/logout" method="post">
+          <button type="submit" className="link-button">Sign out</button>
+        </form>
+      )}
     </nav>
   );
 }

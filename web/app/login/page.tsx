@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { safeNext } from "@/lib/auth.ts";
 import { login } from "./actions.ts";
 
@@ -11,6 +12,7 @@ export default async function LoginPage({
   const params = await searchParams;
   const next = safeNext(typeof params.next === "string" ? params.next : "/");
   const failed = params.error === "1";
+  if (!process.env.VIEW_PASSWORD) redirect(next);
   return (
     <div className="login">
       <form action={login} className="card login-card">

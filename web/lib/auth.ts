@@ -1,10 +1,10 @@
 /**
- * The shared-password gate and the feed API token.
+ * The optional shared-password gate and the optional feed API token.
  *
- * The session cookie holds an HMAC of a fixed label keyed by VIEW_PASSWORD — never the
- * password itself. It can't be forged without the password, and changing the password
- * signs everyone out. Every comparison is constant-time. With VIEW_PASSWORD or
- * FEED_API_TOKEN unset, access is refused rather than left open.
+ * Both are off unless set: with VIEW_PASSWORD unset the pages are open, and with
+ * FEED_API_TOKEN unset so is the API. When set, the session cookie holds an HMAC of a
+ * fixed label keyed by VIEW_PASSWORD — never the password itself — so it can't be forged
+ * and changing the password signs everyone out. Every comparison is constant-time.
  */
 
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";

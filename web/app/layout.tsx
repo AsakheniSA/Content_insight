@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Nav } from "@/components/Nav.tsx";
 import "./globals.css";
 
@@ -8,7 +9,9 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Read VIEW_PASSWORD per request, not once at build time.
+  await connection();
   return (
     <html lang="en-ZA">
       <head>
@@ -23,7 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <header className="top">
           <div className="wrap top-inner">
             <span className="brand">Tula <span>Insights</span></span>
-            <Nav />
+            <Nav gated={Boolean(process.env.VIEW_PASSWORD)} />
           </div>
         </header>
         <main className="wrap">{children}</main>

@@ -125,7 +125,7 @@ test("the session cookie proves the password without containing it", () => {
   assert.ok(hasValidSession(cookie, "hunter2"));
   assert.ok(!hasValidSession(cookie, "changed"), "changing the password signs everyone out");
   assert.ok(!hasValidSession(undefined, "hunter2"));
-  assert.ok(!hasValidSession(cookie, undefined), "no password set means locked, not open");
+  assert.ok(!hasValidSession(cookie, undefined), "no password means no session (the proxy lets everyone in)");
 });
 
 test("passwords and tokens compare exactly", () => {
@@ -177,11 +177,14 @@ test("the feed API takes a date", async () => {
   assert.equal((await call("/api/feed?date=yesterday")).status, 400);
 });
 
-test("the feed API refuses a missing or wrong token, and is off without one", async () => {
+test("with a token set, the feed API refuses a missing or wrong one", async () => {
   assert.equal((await call("/api/feed", {})).status, 401);
   assert.equal((await call("/api/feed", { Authorization: "Bearer nope" })).status, 401);
   assert.equal((await call("/api/feed", { "X-Feed-Token": "secret" })).status, 200);
-  assert.equal((await call("/api/feed", { Authorization: "Bearer secret" }, { ...deps, token: undefined })).status, 503);
+});
+
+test("with no token set, the feed API is open", async () => {
+  assert.equal((await call("/api/feed", {}, { ...deps, token: undefined })).status, 200);
 });
 
 test("the feed API reports a sheet failure without details", async () => {
