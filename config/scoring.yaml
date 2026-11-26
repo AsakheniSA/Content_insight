@@ -66,4 +66,6 @@ publish:
   min_total_score: 0.15        # below this, publish fewer rows rather than weak ones
   angle_model: "claude-haiku-5-5"
   # One sentence. Angles carry no numbers, rules or facts — see prompts/angle.md.
-  angle_max_chars: 160
+  # The prompt asks for at most 160 characters; this check allows 180, because a
+  # slightly long angle is better than none (the first real run lost one at 167).
+  angle_max_chars: 180
