@@ -323,6 +323,67 @@ No test touches the network. The Sheets store is tested against an in-memory fak
 
 ---
 
+## The web view
+
+A small read-only site in `web/` (Next.js), for the team to read the feed without opening
+the sheet, and a JSON endpoint for Irene and Gigi's pipeline.
+
+| Page | Shows |
+|---|---|
+| **Today** (`/`) | The day's feed, best first: question, category, tags, angle, evidence links, status. Step back through earlier days. Warns if the pipeline hasn't run for 36 hours |
+| **Insights** (`/insights`) | Every insight. Filter by category, tag and status; search the text; sort by score, recency or mentions |
+| **Runs** (`/runs`) | The last 30 runs, failures and budget-cap hits highlighted, with this month's estimated Claude spend |
+
+Everything sits behind one shared password (`VIEW_PASSWORD`). The app reads the sheet on
+the server only, with the pipeline's service account and the **read-only** Sheets scope,
+so it cannot change anything; the key never reaches the browser. Each tab is cached for
+five minutes. Search engines are told not to index it.
+
+**The feed API**, for Irene and Gigi's pipeline:
+
+```bash
+curl -H "Authorization: Bearer $FEED_API_TOKEN" "https://<your-app>/api/feed?date=2026-11-26"
+```
+
+`date` defaults to today (SAST). The reply is JSON: `feed_date`, `count`, `fetched_at`,
+`stale`, and `items` — each with the `feed` tab's columns (`rank`, `insight_id`,
+`question`, `category`, `tags` and `evidence_urls` as lists, `suggested_angle`,
+`total_score`, `served_at`, `status`, `rejection_reason`, `post_ref`). `reviewed_by` is
+left out. A wrong or missing token gets 401; with no `FEED_API_TOKEN` set on the server
+the API is off (503).
+
+### Deploying on Vercel
+
+1. In Vercel, import (or reconnect) this repository and set **Root Directory** to `web`.
+   Vercel detects Next.js; leave the build settings at their defaults.
+2. Under **Settings → Environment Variables**, add these four for Production and Preview:
+
+   | Variable | Value |
+   |---|---|
+   | `GOOGLE_SERVICE_ACCOUNT_JSON` | The same base64 key as the GitHub secret |
+   | `SHEET_ID` | The spreadsheet ID |
+   | `VIEW_PASSWORD` | A password to share with the team |
+   | `FEED_API_TOKEN` | A long random string, e.g. from `openssl rand -hex 32`; give it only to whoever runs the consuming pipeline |
+
+3. Deploy. Without `VIEW_PASSWORD` the pages stay locked; without `FEED_API_TOKEN` the
+   API stays off. Changing `VIEW_PASSWORD` (and redeploying) signs everyone out.
+
+The app uses nothing Vercel-specific, so any host that runs Node.js 20.9 or later works:
+`npm ci && npm run build && npm start` in `web/`, with the same four variables. Vercel's
+free Hobby plan is for non-commercial use under its terms — check them against how Tula
+uses this, and move hosts if needed.
+
+**Locally:** copy `web/.env.example` to `web/.env.local`, fill it in, then:
+
+```bash
+cd web && npm ci && npm run dev
+```
+
+The **Web** workflow (`.github/workflows/web.yml`) tests and builds the app on every
+change to `web/`, then reads the real sheet the way the app does and prints counts.
+
+---
+
 ## Configuration
 
 Everything tunable lives in `config/`. No magic numbers in code.
@@ -433,7 +494,7 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 | 6 | Full `pipeline.yml` | **Done** |
 | 7 | `news_rss` (the rest landed in stage 2) | **Done** |
 | 8 | Alerting, keep-alive, budget guardrails | **Done** |
-| 9 | Web view on Vercel | Next |
+| 9 | Web view on Vercel | **Built** — Vercel deploy pending |
 | 10 | Full README (brief section 12) | — |
 
 ---
@@ -573,5 +634,5 @@ src/tula_insights/
   github_api.py            the few GitHub REST calls the two above need
   utils/                   serialisation, clock, logging, PII, retry, rate limits
 tests/                     pytest; no network
-web/                       the read-only view (stage 9)
+web/                       the read-only view and /api/feed (Next.js)
 ```
