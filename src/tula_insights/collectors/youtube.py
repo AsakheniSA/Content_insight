@@ -332,7 +332,9 @@ class YouTubeCollector:
                     break
                 if client.searches >= daily_search_cap:
                     ctx.ledger.note_skip(
-                        self.name, f"source daily_search_cap of {daily_search_cap} reached"
+                        self.name,
+                        f"source daily_search_cap of {daily_search_cap} reached",
+                        budget_cap=False,
                     )
                     break
                 if ctx.ledger.remaining_youtube_searches() <= 0:
@@ -385,7 +387,9 @@ class YouTubeCollector:
                         items.append(item)
                         ctx.count("youtube.comments_kept")
         except QuotaRefused as error:
-            ctx.ledger.note_skip(self.name, f"YouTube refused further requests: {error}")
+            ctx.ledger.note_skip(
+                self.name, f"YouTube refused further requests: {error}", budget_cap=False
+            )
         except YouTubeError as error:
             raise CollectorError(f"{self.name}: {error}") from None
         finally:

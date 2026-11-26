@@ -473,6 +473,24 @@ class ClassifySettings(Base):
         return value
 
 
+class AlertSettings(Base):
+    #: Label on the issue a failed run opens. One open issue at a time carries it.
+    label: str = Field(min_length=1, max_length=50)
+    #: Error lines quoted per failed job, and the most characters kept of each.
+    max_lines_per_job: int = Field(ge=0, le=20)
+    max_line_chars: int = Field(ge=40, le=1000)
+
+
+class KeepAliveSettings(Base):
+    #: Workflow files the keep-alive re-enables, as named in .github/workflows/.
+    workflows: list[str] = Field(min_length=1)
+    #: With no commit on the default branch for this many days, commit the marker file.
+    #: GitHub disables scheduled workflows in a public repository after 60 days without
+    #: repository activity, so this must stay comfortably below 60.
+    quiet_days: int = Field(ge=1, le=55)
+    marker_path: str = Field(min_length=1)
+
+
 class Settings(Base):
     version: int
     sheet: SheetSettings
@@ -480,6 +498,8 @@ class Settings(Base):
     run: RunSettings
     logging: LoggingSettings
     classify: ClassifySettings
+    alerts: AlertSettings
+    keepalive: KeepAliveSettings
 
 
 # --- environment ---------------------------------------------------------------------

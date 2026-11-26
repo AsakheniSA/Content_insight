@@ -7,12 +7,12 @@ publishes a ranked daily feed that Irene and Gigi's content pipeline reads.
 Everything is stored in one Google Sheet. Everything runs on GitHub Actions. The only
 paid service is the Claude API.
 
-> **Build status: stage 7 of 10 complete.** The full pipeline — discovery (general web
+> **Build status: stage 8 of 10 complete.** The full pipeline — discovery (general web
 > search, YouTube comments, news feeds, manual submissions), classification, dedupe and
-> scoring, and the daily feed — runs every day at 05:17 SAST in GitHub Actions. Still
-> to come: alerting and keep-alive, the web view, and the full README. The classifier, scoring and feed stages land next —
-> see [`IMPLEMENTATION_BRIEF.md`](IMPLEMENTATION_BRIEF.md) section 11 for the order, and
-> the [Build progress](#build-progress) table below for where things stand.
+> scoring, and the daily feed — runs every day at 05:17 SAST in GitHub Actions, with
+> failure alerts, a keep-alive and budget caps. Still to come: the web view and the full
+> README — see [`IMPLEMENTATION_BRIEF.md`](IMPLEMENTATION_BRIEF.md) section 11 for the
+> order, and the [Build progress](#build-progress) table below for where things stand.
 
 ---
 
@@ -249,16 +249,17 @@ Once they land, each takes the same options:
 
 **Pipeline** (`.github/workflows/pipeline.yml`) runs **every day at 05:17 SAST** (03:17
 UTC — off the hour, because scheduled runs near the top of the hour are often delayed).
-It runs six jobs:
+It runs seven jobs:
 
 | Job | What it does |
 |---|---|
-| Plan and prepare | Validates config, plans the collect jobs, creates missing tabs, runs the YouTube 30-day purge |
+| Plan and prepare | Validates config, plans the collect jobs, creates missing tabs, runs the YouTube 30-day purge, shows month-to-date spend against the caps |
 | Collect | **One job per source, in parallel.** One failing never stops the others |
 | Classify | Batch mode; runs if at least one source succeeded |
 | Score | Checks the dedupe thresholds against the real model, then scores |
 | Publish | Today's feed |
-| Report | Merges every job's figures into the run's single `runs` row; one combined summary |
+| Report | Merges every job's figures into the run's single `runs` row; one combined summary, ending with the budget and the sheet's size |
+| Alert | Opens, updates or closes the `pipeline-failure` issue (below) |
 
 Classify, score and publish carry on with whatever arrived, so there is a feed every day
 even when a source fails. Only one run writes to the sheet at a time; a second waits.
@@ -275,7 +276,30 @@ even when a source fails. Only one run writes to the sheet at a time; a second w
 | `break_source` | none | Isolation test: give one source invalid credentials and watch the rest carry on |
 
 Scheduled runs are always real runs. **To pause the schedule:** Actions → Pipeline →
-`···` → **Disable workflow**.
+`···` → **Disable workflow**. The keep-alive leaves a workflow you disabled by hand alone.
+
+**When a run fails** — any job, including a single source — the Alert job opens a GitHub
+issue titled *Pipeline failing* with the label `pipeline-failure`: the run link, which
+jobs and steps failed, and their short error lines. If that issue is already open, it
+adds a comment instead, so one outage is one issue. After the next **fully successful
+run** it comments and closes the issue. A fully successful run means every job passed
+in the scheduled run, or in a manual run with `dry_run` off and every other option at
+its default; a successful dry run or a single-stage run proves too little to close it.
+GitHub emails issue activity to people watching the repository — set Watch → Custom →
+Issues to be told. The issue is public, so it quotes error lines only, never collected
+text.
+
+**Keep-alive.** GitHub switches off scheduled workflows in a public repository after 60
+days without repository activity. **Keep-alive** (`.github/workflows/keepalive.yml`)
+runs every Monday at 06:41 SAST. It re-enables the Pipeline workflow through GitHub's
+API and, **only if `main` has had no commit for 45 days**, commits a one-line date to
+`.github/keepalive`. With normal development that commit never happens; on a quiet
+repository it is at most one small commit every 45 days. Settings:
+`settings.yaml → keepalive`.
+
+**If the schedule stops anyway** (no run on the Actions tab for a day or more): Actions
+→ **Pipeline** → the banner says the workflow was disabled → **Enable workflow**. Do the
+same for **Keep-alive**. Nothing is lost; the next scheduled run carries on.
 
 **What each run leaves behind:** each job's section on the run page; a counts-only
 `run-summary` artifact; each job's logs as artifacts (counts and IDs only — the
@@ -338,10 +362,34 @@ silently collecting nothing.
 
 **Caps.** Three of them apply to every search, and whichever bites first wins:
 `sources.yaml` → `daily_request_cap` per source, `budget.yaml` → `daily_caps` and
-`monthly_caps`, and `max_uses_per_request` per search request. Hitting a cap skips the
-rest of that source and flags it in the summary; it does not fail the run. The ledger
-reads what previous runs recorded in the `runs` tab, so there is no separate counter to
-drift.
+`monthly_caps`, and `max_uses_per_request` per search request. The ledger reads what
+previous runs recorded in the `runs` tab, so there is no separate counter to drift.
+
+Before each paid step the pipeline checks month-to-date spend against `budget.yaml`:
+
+| Step | What stops at the cap |
+|---|---|
+| Collect | The web search and YouTube collectors stop searching; what they found so far is kept |
+| Classify | No new classification this run; items wait as `new` |
+| Score | The dedupe judge is switched off; questions in the judge band wait for a later run |
+| Publish | The feed is still published, without suggested angles |
+
+What happens next is `budget.yaml → on_cap_exceeded`:
+
+- `skip` (the default, as the brief asks): the step is flagged in its job summary and
+  in the `runs` row's `errors` (`budget: …`), and the run carries on and passes.
+- `fail`: the step still saves what it has, then fails — which opens a
+  `pipeline-failure` issue.
+
+A source's own `daily_request_cap`, or YouTube refusing a request, is reported but never
+counts as a budget breach.
+
+**Checking spend.** Every run's summary ends with month-to-date spend against each cap,
+and warns at 80%. To check at any time:
+
+```bash
+python -m tula_insights budget
+```
 
 Config errors fail at startup with the file, the field and the reason, before a run
 spends anything:
@@ -384,8 +432,8 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 | 5 | Publish feed | **Done** |
 | 6 | Full `pipeline.yml` | **Done** |
 | 7 | `news_rss` (the rest landed in stage 2) | **Done** |
-| 8 | Alerting, keep-alive, budget guardrails | Next |
-| 9 | Web view on Vercel | — |
+| 8 | Alerting, keep-alive, budget guardrails | **Done** |
+| 9 | Web view on Vercel | Next |
 | 10 | Full README (brief section 12) | — |
 
 ---
@@ -452,8 +500,9 @@ Recorded as they are designed in, not discovered later.
   for no more than 30 calendar days. Every collect run first **purges** YouTube rows
   older than that: their text and numbers are blanked and their status becomes
   `purged`. They are never archived. The limit lives in `settings.yaml →
-  retention.api_data_max_days`. Insight evidence links to YouTube comments will need
-  the same treatment once insights exist (stage 4).
+  retention.api_data_max_days`. Insight evidence links to those comments drop out too, because
+  insights are recomputed from their items on every run; feed rows lose them after
+  30 days.
 - **YouTube search is the scarce quota.** Since June 2026 `search.list` has its own
   bucket of 100 calls a day, separate from the 10,000-unit pool. The collector makes at
   most 50 a day. Quota resets at midnight Pacific time.
@@ -487,8 +536,18 @@ Recorded as they are designed in, not discovered later.
   concurrency group enforces that. Collectors append only their own source's rows, so
   parallel collection is safe.
 - **Scheduled workflows in public repositories are auto-disabled after 60 days of no
-  repository activity.** Handled in stage 8; the manual fallback is the Actions tab →
-  re-enable the workflow.
+  repository activity.** GitHub does not define "activity", and nothing documented says
+  re-enabling a workflow through the API resets the clock. So the keep-alive does both:
+  it re-enables through the API weekly, and commits a marker file only after 45 quiet
+  days, since a commit unambiguously counts. If the schedule stops anyway: Actions →
+  Pipeline → **Enable workflow**.
+- **The `items` archive is not built.** The brief's plan is to move old `items` rows to
+  an `items_archive` tab once the sheet passes 70% of its cell limit. Two problems: a
+  tab in the same spreadsheet does not reduce the cell count, and scoring recomputes
+  each insight from its items, so archived items would drop out of their insights'
+  counts. At about 250 items a day the threshold is roughly three years away (an
+  estimate). Every run's summary reports the sheet's size against the threshold, so
+  there is plenty of warning to decide on a second spreadsheet before it matters.
 
 ---
 
@@ -509,6 +568,9 @@ src/tula_insights/
   llm/                     the Claude client, token accounting and prompt loading
   stages/                  one module per pipeline stage
   budget.py                spend caps, read from the runs tab
+  alerts.py                the pipeline-failure issue: open, comment, close
+  keepalive.py             re-enable the schedule; the 45-day marker commit
+  github_api.py            the few GitHub REST calls the two above need
   utils/                   serialisation, clock, logging, PII, retry, rate limits
 tests/                     pytest; no network
 web/                       the read-only view (stage 9)

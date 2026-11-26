@@ -7,7 +7,9 @@
   a file into the run's single `runs` row. Parallel jobs writing the row directly could
   both see no row and both append one.
 * :func:`report` — one combined summary of the whole run, read back from its `runs`
-  row, for the job summary and the counts-only `run_summary.json` artifact.
+  row, for the job summary and the counts-only `run_summary.json` artifact. It ends with
+  month-to-date spend against every cap and the sheet's size against its threshold.
+* :func:`budget_status` — month-to-date and today's use against every cap, on its own.
 """
 
 from __future__ import annotations
@@ -16,11 +18,13 @@ import json
 import os
 from pathlib import Path
 
+from ..budget import WARN_FRACTION, UsageLedger, cap_lines
 from ..collectors.registry import plan_sources
 from ..config import AppConfig
 from ..models import RunStats
 from ..schema import RUNS
 from ..store.sheets import SheetStore, open_store
+from ..utils.actions import emit
 from ..utils.logging import get_logger
 from .collect import make_run_id
 from .retention import purge_expired, purge_expired_feed_links
@@ -121,11 +125,70 @@ def report(
     if stats.errors:
         lines += ["", f"  Warnings and errors ({len(stats.errors)}):"]
         lines += [f"    - {e}" for e in stats.errors]
+
+    budget_lines, warnings = _budget_lines(config, store)
+    lines += ["", *budget_lines]
+    summary["budget_warnings"] = warnings
+    size_line, cells = _size_line(store)
+    if size_line:
+        lines += ["", size_line]
+        summary["sheet_cells"] = cells
     return lines, summary
+
+
+def _budget_lines(config: AppConfig, store: SheetStore) -> tuple[list[str], list[str]]:
+    ledger = UsageLedger.from_store(config, store)
+    caps = cap_lines(ledger)
+    lines = ["  Budget (budget.yaml caps):"] + [f"    {c.text()}" for c in caps]
+    warnings = [
+        f"{c.name} is at {c.fraction:.0%} of its cap" for c in caps if c.fraction >= WARN_FRACTION
+    ]
+    lines += [f"    ! {w}" for w in warnings]
+    return lines, warnings
+
+
+def _size_line(store: SheetStore) -> tuple[str, int]:
+    """The sheet's size against its archive threshold. Blank if it cannot be measured."""
+    try:
+        cells = store.cell_count()
+    except Exception as error:
+        log.warning("ops.size_unreadable", extra={"error_type": type(error).__name__})
+        return "", 0
+    settings = store.settings
+    threshold = int(settings.cell_limit * settings.archive_threshold_fraction)
+    line = f"  Sheet size       {cells:,} cells ({cells / threshold:.0%} of the archive threshold)"
+    if cells >= threshold:
+        line += " — past the threshold: archiving is needed (see README)"
+    return line, cells
+
+
+def budget_status(
+    config: AppConfig, *, store: SheetStore | None = None
+) -> tuple[list[str], list[str]]:
+    """Month-to-date and today's use against every cap. Returns (lines, warnings)."""
+    store = store or open_store(config, dry_run=True)
+    lines, warnings = _budget_lines(config, store)
+    policy = config.budget.on_cap_exceeded
+    lines.append(
+        f"  On a cap: {'skip and flag' if policy == 'skip' else 'fail the run'} "
+        f"(on_cap_exceeded: {policy}). Prices checked {config.budget.prices_checked_on}."
+    )
+    return lines, warnings
+
+
+def write_budget_summary(lines: list[str], warnings: list[str]) -> None:
+    for warning in warnings:
+        emit("warning", "Budget", warning)
+    step = os.environ.get("GITHUB_STEP_SUMMARY", "")
+    if step:
+        with open(step, "a", encoding="utf-8") as handle:
+            handle.write("### Budget\n\n```\n" + "\n".join(lines) + "\n```\n")
 
 
 def write_report(lines: list[str], summary: dict[str, object]) -> None:
     """Job summary and, if asked for, the counts-only run_summary.json."""
+    for warning in summary.get("budget_warnings", []) or []:
+        emit("warning", "Budget", str(warning))
     step = os.environ.get("GITHUB_STEP_SUMMARY", "")
     if step:
         with open(step, "a", encoding="utf-8") as handle:

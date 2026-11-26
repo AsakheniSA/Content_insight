@@ -7,7 +7,12 @@ ledger is the run history.
 Policy, from §6.5 of the brief: when a cap would be exceeded the paid stage or source is
 **skipped and flagged**, not failed. A run that quietly does less is better than a run
 that fails loudly and leaves the feed empty — and better than one that keeps spending.
-Set `on_cap_exceeded: fail` in budget.yaml to change that.
+Set `on_cap_exceeded: fail` in budget.yaml to change that: the stage still stops
+spending at the cap, saves what it already has, and then exits with a failure, which
+opens a `pipeline-failure` issue.
+
+Only the caps in budget.yaml count here. A source's own per-run cap in sources.yaml, or
+YouTube refusing a request, is noted in the summary but is not a budget breach.
 """
 
 from __future__ import annotations
@@ -63,8 +68,10 @@ class UsageLedger:
     #: What this run has spent so far, added to `spent` when checking a cap.
     searches_this_run: int = 0
     youtube_searches_this_run: int = 0
-    #: Caps that were hit, for the job summary.
+    #: Everything that was cut short, for the job summary.
     skipped: list[str] = field(default_factory=list)
+    #: The subset of `skipped` caused by a budget.yaml cap.
+    cap_breaches: list[str] = field(default_factory=list)
 
     @classmethod
     def from_store(
@@ -202,11 +209,59 @@ class UsageLedger:
     def record_youtube_searches(self, count: int) -> None:
         self.youtube_searches_this_run += max(0, count)
 
-    def note_skip(self, what: str, reason: str) -> None:
+    def note_skip(self, what: str, reason: str, *, budget_cap: bool = True) -> None:
+        """Record that `what` stopped early. `budget_cap=False` for non-budget limits."""
         message = f"{what}: {reason}"
         self.skipped.append(message)
-        log.warning("budget.skipped", extra={"what": what, "reason": reason})
+        if budget_cap:
+            self.cap_breaches.append(message)
+        log.warning(
+            "budget.skipped", extra={"what": what, "reason": reason, "budget_cap": budget_cap}
+        )
 
     @property
     def fail_on_cap(self) -> bool:
         return self.config.budget.on_cap_exceeded == "fail"
+
+
+@dataclass
+class CapLine:
+    """One cap, with how much of it is used."""
+
+    name: str
+    used: float
+    cap: float
+    money: bool = False
+
+    @property
+    def fraction(self) -> float:
+        return self.used / self.cap if self.cap else 0.0
+
+    def text(self) -> str:
+        if self.money:
+            figures = f"${self.used:.2f} of ${self.cap:.2f}"
+        else:
+            figures = f"{int(self.used)} of {int(self.cap)}"
+        return f"{self.name:<28} {figures} ({self.fraction:.0%})"
+
+
+#: Above this share of a cap, the budget report raises a warning.
+WARN_FRACTION = 0.8
+
+
+def cap_lines(ledger: UsageLedger) -> list[CapLine]:
+    """Month-to-date and today's use against every cap in budget.yaml."""
+    budget = ledger.config.budget
+    spent = ledger.spent
+    return [
+        CapLine("Claude spend, this month", spent.usd_this_month,
+                budget.monthly_caps.claude_usd, money=True),
+        CapLine("Web searches, this month", spent.searches_this_month,
+                budget.monthly_caps.claude_web_searches),
+        CapLine("Web searches, today", spent.searches_today,
+                budget.daily_caps.claude_web_searches),
+        CapLine("YouTube searches, this month", spent.youtube_searches_this_month,
+                budget.monthly_caps.youtube_searches),
+        CapLine("YouTube searches, today", spent.youtube_searches_today,
+                budget.daily_caps.youtube_searches),
+    ]

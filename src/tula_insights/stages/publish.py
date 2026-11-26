@@ -62,6 +62,8 @@ class PublishResult:
     run_id: str
     feed_date: str
     dry_run: bool = False
+    #: Budget caps that stopped part of the stage (budget.yaml caps only).
+    cap_breaches: list[str] = field(default_factory=list)
     already_today: int = 0
     eligible: int = 0
     served: int = 0
@@ -213,6 +215,7 @@ def run(
         decision = ledger.allows_spend(0.01 * len(chosen))
         if not decision:
             result.warnings.append(f"Angles skipped: {decision.reason}")
+            result.cap_breaches.append(f"angles: {decision.reason}")
             writer = None
 
     pains = _pain_points(store, chosen)

@@ -52,6 +52,8 @@ class CollectResult:
     #: holds non-fatal notes — so the aggregate error names a real cause.
     failures: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    #: The subset of `skipped` caused by a budget.yaml cap.
+    cap_breaches: list[str] = field(default_factory=list)
     est_cost_usd: float = 0.0
     dry_run: bool = False
     #: Named counts from collectors. Numbers only — this is printed in public logs.
@@ -153,6 +155,7 @@ def run(
             hooks.append((collector, items, ctx))
 
     result.skipped = list(ledger.skipped)
+    result.cap_breaches = list(ledger.cap_breaches)
     result.searches = ledger.searches_this_run
     if llm is not None:
         result.est_cost_usd = llm.usage.estimate_usd(config.budget)
@@ -320,7 +323,12 @@ def _record_run(
         },
         actions_run_url=_actions_run_url(),
         git_sha=os.environ.get("GITHUB_SHA", "")[:12],
-        errors=[line[:200] for line in (result.failures + result.warnings)[:10]],
+        errors=[
+            line[:200]
+            for line in (
+                result.failures + [f"budget: {b}" for b in result.skipped] + result.warnings
+            )[:10]
+        ],
         finished_at=now_utc(),
     )
     if run_stats_out:

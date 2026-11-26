@@ -67,6 +67,8 @@ class ScoreError(RuntimeError):
 class ScoreResult:
     run_id: str
     dry_run: bool = False
+    #: Budget caps that stopped part of the stage (budget.yaml caps only).
+    cap_breaches: list[str] = field(default_factory=list)
     new_insights: int = 0
     merged: int = 0
     judge_calls: int = 0
@@ -120,6 +122,7 @@ def run(
         decision = ledger.allows_spend(estimate)
         if not decision:
             result.warnings.append(f"Judge disabled this run: {decision.reason}")
+            result.cap_breaches.append(f"judge: {decision.reason}")
             judge = None
     if judge is None and llm is None:
         result.warnings.append(

@@ -16,9 +16,12 @@ from .utils.logging import get_logger, setup_logging
 
 log = get_logger(__name__)
 
-#: Stage name -> the build stage it arrives in. Filled in as each one lands.
+#: Stage name -> why it is not available yet.
 PENDING_STAGES = {
-    "archive": 8,
+    "archive": (
+        "deferred — the sheet is far below its size threshold, and archiving `items` "
+        "needs a design decision first (see README, Known limitations)"
+    ),
 }
 
 
@@ -30,7 +33,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "stage",
         choices=["validate-config", "setup-sheet", "collect", "classify", "score",
-                 "publish", "plan", "purge", "record-run", "report", *PENDING_STAGES],
+                 "publish", "plan", "purge", "record-run", "report", "budget", "alert",
+                 "keepalive", *PENDING_STAGES],
         help="which pipeline stage to run",
     )
     parser.add_argument(
@@ -105,6 +109,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _record_run(config, from_dir=args.from_dir)
     if args.stage == "report":
         return _report(config)
+    if args.stage == "budget":
+        return _budget(config)
+    if args.stage == "alert":
+        return _alert(config)
+    if args.stage == "keepalive":
+        return _keepalive(config, dry_run=args.dry_run)
     if args.stage == "publish":
         return _publish(config, dry_run=args.dry_run)
     if args.stage == "score":
@@ -117,13 +127,33 @@ def main(argv: Sequence[str] | None = None) -> int:
             purge=not args.no_purge, run_stats_out=args.run_stats_out,
         )
 
-    stage_number = PENDING_STAGES[args.stage]
-    print(
-        f"The {args.stage!r} stage is not built yet — it lands in build stage "
-        f"{stage_number} (see IMPLEMENTATION_BRIEF.md section 11).",
-        file=sys.stderr,
-    )
+    print(f"The {args.stage!r} stage is not available: {PENDING_STAGES[args.stage]}.",
+          file=sys.stderr)
     return 3
+
+
+def _fail(what: str, error: object) -> int:
+    """Report a stage failure on stderr and, in Actions, as an error annotation.
+
+    The annotation is what the alert job quotes in the failure issue.
+    """
+    from .utils.actions import emit
+
+    print(f"{what}:\n  {error}", file=sys.stderr)
+    emit("error", what, str(error))
+    return 1
+
+
+def _cap_failure(config, breaches: list[str]) -> int:
+    """With `on_cap_exceeded: fail`, a budget cap that was hit fails the stage.
+
+    Called after the stage has saved its work, so nothing collected is lost.
+    """
+    if not breaches or config.budget.on_cap_exceeded != "fail":
+        return 0
+    return _fail(
+        "Budget cap reached (budget.yaml: on_cap_exceeded is fail)", "; ".join(breaches)
+    )
 
 
 def _publish(config, *, dry_run: bool) -> int:
@@ -132,11 +162,10 @@ def _publish(config, *, dry_run: bool) -> int:
     try:
         result = publish_stage.run(config, dry_run=dry_run)
     except publish_stage.PublishError as error:
-        print(f"Publish failed:\n  {error}", file=sys.stderr)
-        return 1
+        return _fail("Publish failed", error)
     print("\n".join(publish_stage.summary_lines(result)))
     publish_stage.write_job_summary(result)
-    return 0
+    return _cap_failure(config, result.cap_breaches)
 
 
 def _score(config, *, dry_run: bool) -> int:
@@ -145,11 +174,10 @@ def _score(config, *, dry_run: bool) -> int:
     try:
         result = score_stage.run(config, dry_run=dry_run)
     except score_stage.ScoreError as error:
-        print(f"Score failed:\n  {error}", file=sys.stderr)
-        return 1
+        return _fail("Score failed", error)
     print("\n".join(score_stage.summary_lines(result)))
     score_stage.write_job_summary(result)
-    return 0
+    return _cap_failure(config, result.cap_breaches)
 
 
 def _classify(config, *, source: str, sync: bool, dry_run: bool) -> int:
@@ -158,8 +186,7 @@ def _classify(config, *, source: str, sync: bool, dry_run: bool) -> int:
     try:
         result = classify_stage.run(config, sync=sync, dry_run=dry_run, source=source)
     except classify_stage.ClassifyError as error:
-        print(f"Classify failed:\n  {error}", file=sys.stderr)
-        return 1
+        return _fail("Classify failed", error)
     print("\n".join(classify_stage.summary_lines(result)))
     classify_stage.write_job_summary(result)
     return 0
@@ -174,8 +201,7 @@ def _plan(config, *, source: str) -> int:
     try:
         sources = ops.plan(config, source=source)
     except CollectorError as error:
-        print(f"Plan failed:\n  {error}", file=sys.stderr)
-        return 1
+        return _fail("Plan failed", error)
     ops.write_github_output({
         "sources": json.dumps(sources),
         "has_sources": "true" if sources else "false",
@@ -191,8 +217,7 @@ def _purge(config, *, dry_run: bool) -> int:
     try:
         counts = ops.purge(config, dry_run=dry_run)
     except (SheetStoreError, ConfigError) as error:
-        print(f"Purge failed:\n  {error}", file=sys.stderr)
-        return 1
+        return _fail("Purge failed", error)
     suffix = " (dry run — nothing changed)" if dry_run else ""
     print(f"Platform storage purge{suffix}: {counts['items_purged']} item row(s), "
           f"{counts['feed_rows_links_purged']} feed row(s)")
@@ -210,8 +235,7 @@ def _record_run(config, *, from_dir: str | None) -> int:
     try:
         recorded = ops.record_collect_stats(config, paths)
     except (SheetStoreError, ConfigError, ValueError) as error:
-        print(f"Recording the collect figures failed:\n  {error}", file=sys.stderr)
-        return 1
+        return _fail("Recording the collect figures failed", error)
     print(f"Recorded figures from {recorded} collect job(s).")
     return 0
 
@@ -223,10 +247,65 @@ def _report(config) -> int:
     try:
         lines, summary = ops.report(config)
     except (SheetStoreError, ConfigError) as error:
-        print(f"Report failed:\n  {error}", file=sys.stderr)
-        return 1
+        return _fail("Report failed", error)
     print("\n".join(lines))
     ops.write_report(lines, summary)
+    return 0
+
+
+def _budget(config) -> int:
+    from .stages import ops
+    from .store.sheets import SheetStoreError
+
+    try:
+        lines, warnings = ops.budget_status(config)
+    except (SheetStoreError, ConfigError) as error:
+        return _fail("Budget check failed", error)
+    print("\n".join(lines))
+    ops.write_budget_summary(lines, warnings)
+    return 0
+
+
+def _alert(config) -> int:
+    import os
+
+    from . import alerts
+    from .github_api import GitHubClient, GitHubError, RunInfo
+
+    try:
+        outcome = alerts.RunOutcome.from_json(
+            os.environ.get("NEEDS_JSON", ""),
+            event=os.environ.get("GITHUB_EVENT_NAME", ""),
+            inputs_json=os.environ.get("INPUTS_JSON", ""),
+        )
+        result = alerts.handle(
+            GitHubClient.from_env(), RunInfo.from_env(), outcome, config.settings.alerts
+        )
+    except (GitHubError, ValueError) as error:
+        return _fail("Alert failed", error)
+    label = config.settings.alerts.label
+    messages = {
+        "opened": f"Opened issue #{result.issue_number} ({label}).",
+        "commented": f"Commented on open issue #{result.issue_number} ({label}).",
+        "closed": f"Closed issue #{result.issue_number} ({label}): fully successful run.",
+        "none": "Nothing to do: no failure, and no open issue this run could close.",
+    }
+    if result.failed_jobs:
+        print(f"Failed jobs: {', '.join(result.failed_jobs)}")
+    print(messages[result.action])
+    return 0
+
+
+def _keepalive(config, *, dry_run: bool) -> int:
+    from . import keepalive
+    from .github_api import GitHubClient, GitHubError
+
+    try:
+        result = keepalive.run(GitHubClient.from_env(), config.settings.keepalive,
+                               dry_run=dry_run)
+    except GitHubError as error:
+        return _fail("Keep-alive failed", error)
+    print("\n".join(keepalive.summary_lines(result, config.settings.keepalive)))
     return 0
 
 
@@ -244,19 +323,16 @@ def _collect(
             purge=purge, run_stats_out=run_stats_out,
         )
     except CollectorError as error:
-        print(f"Collect failed:\n  {error}", file=sys.stderr)
-        return 1
+        return _fail(f"Collect failed ({source})", error)
     except SheetStoreError as error:
-        print(f"Collect failed — the spreadsheet could not be reached:\n  {error}",
-              file=sys.stderr)
-        return 1
+        return _fail(f"Collect failed ({source}) — the spreadsheet could not be reached", error)
     except ConfigError as error:
         print(f"Config error:\n{error}", file=sys.stderr)
         return 2
 
     print("\n".join(collect_stage.summary_lines(result)))
     collect_stage.write_job_summary(result)
-    return 0
+    return _cap_failure(config, result.cap_breaches)
 
 
 def _validate_config(config) -> int:

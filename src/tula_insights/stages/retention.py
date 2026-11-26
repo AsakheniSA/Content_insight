@@ -12,7 +12,7 @@ because deleting sheet rows shifts every row number beneath them, which is how a
 concurrent edit lands on the wrong row.
 
 Purged rows must never be archived: archiving would keep the data indefinitely, which
-is exactly what the limit forbids. The archive step (stage 8) must skip these sources.
+is exactly what the limit forbids. Any future archive step must skip these sources.
 
 Insight evidence links need no separate step: insights are recomputed from their
 items on every score run, so a purged item's link simply drops out. **Feed rows** are

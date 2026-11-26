@@ -26,11 +26,11 @@ def test_broken_config_exits_two_without_a_traceback(config_dir, capsys):
 
 
 @pytest.mark.parametrize("stage", sorted(PENDING_STAGES))
-def test_unbuilt_stages_say_which_stage_they_arrive_in(stage, config_dir, capsys):
+def test_unavailable_stages_say_why(stage, config_dir, capsys):
     assert main([stage]) == 3
     err = capsys.readouterr().err
-    assert "not built yet" in err
-    assert str(PENDING_STAGES[stage]) in err
+    assert "not available" in err
+    assert PENDING_STAGES[stage] in err
 
 
 def test_unknown_stage_is_rejected_by_the_parser():

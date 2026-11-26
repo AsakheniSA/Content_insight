@@ -10,6 +10,9 @@
 #
 # Needs these repository secrets: ANTHROPIC_API_KEY, GOOGLE_SERVICE_ACCOUNT_JSON
 # (base64), SHEET_ID (or a SHEET_ID variable), YOUTUBE_API_KEY.
+#
+# The last job, `alert`, opens a `pipeline-failure` issue when any job fails (or comments
+# on the one already open), and closes it after the next fully successful run.
 
 name: Pipeline
 
@@ -97,6 +100,11 @@ jobs:
       # Once per run, here, rather than once in every parallel collect job.
       - name: Enforce platform storage limits (YouTube's 30 days)
         run: python -m tula_insights purge ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      # Month-to-date spend against every cap. Each paid step checks its own cap again
+      # before spending; this is the early warning in the run summary.
+      - name: Check the budget
+        run: python -m tula_insights budget
 
   collect:
     name: Collect (${{ matrix.source }})
@@ -245,7 +253,7 @@ jobs:
         run: python -m pip install --upgrade pip && pip install -e ".[embeddings]"
 
       - name: Restore the embedding model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .cache/fastembed
           key: fastembed-${{ hashFiles('config/scoring.yaml') }}
@@ -352,3 +360,33 @@ jobs:
           path: run_summary.json
           if-no-files-found: ignore
           retention-days: 14
+
+  alert:
+    name: Alert
+    needs: [plan, collect, classify, score, publish, report]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The only job that writes to GitHub: it may open, comment on and close issues, and
+    # read this run's jobs and their error annotations to describe the failure.
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: python -m pip install --upgrade pip && pip install -e .
+
+      - name: Open, update or close the failure issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          INPUTS_JSON: ${{ toJSON(inputs) }}
+        run: python -m tula_insights alert

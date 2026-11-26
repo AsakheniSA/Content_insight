@@ -143,6 +143,7 @@ class WebSearchCollector:
                 ctx.ledger.note_skip(
                     self.name,
                     f"source daily_request_cap of {cfg.daily_request_cap} reached",
+                    budget_cap=False,
                 )
                 break
             allowance = ctx.ledger.remaining_web_searches()

@@ -62,6 +62,24 @@ classify:
   write_every: 50
   max_question_chars: 300
 
+alerts:
+  # A failed run opens (or comments on) one issue with this label; the next fully
+  # successful run comments and closes it. Issues are public: they quote job names and
+  # short error lines only, never collected text.
+  label: "pipeline-failure"
+  max_lines_per_job: 5
+  max_line_chars: 300
+
+keepalive:
+  # GitHub disables scheduled workflows in a public repository after 60 days without
+  # repository activity. .github/workflows/keepalive.yml runs weekly: it re-enables
+  # these workflows through the API and, only if the default branch has had no commit
+  # for `quiet_days`, commits a one-line date to `marker_path`. Whether the API call
+  # alone resets GitHub's 60-day clock is not documented, hence the commit fallback.
+  workflows: ["pipeline.yml", "keepalive.yml"]
+  quiet_days: 45
+  marker_path: ".github/keepalive"
+
 logging:
   level: "INFO"
   format: "json"

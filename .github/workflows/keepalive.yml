@@ -1,0 +1,60 @@
+# Keeps the scheduled pipeline switched on.
+#
+# GitHub disables scheduled workflows in a public repository after 60 days without
+# repository activity. Weekly, this job:
+#   1. re-enables pipeline.yml and itself through the REST API (skipping any workflow
+#      someone disabled by hand), and
+#   2. only if the default branch has had no commit for 45 days, commits a one-line date
+#      to .github/keepalive — at most one small commit every 45 days on a quiet repo.
+# Whether step 1 alone resets GitHub's clock is not documented, hence step 2.
+# Settings: config/settings.yaml → keepalive.
+#
+# If the pipeline is disabled anyway: Actions tab → Pipeline → "Enable workflow".
+
+name: Keep-alive
+
+on:
+  schedule:
+    # Mondays 06:41 SAST (04:41 UTC), away from the pipeline's 05:17 run.
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would happen, change nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tula-insights-keepalive
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  keepalive:
+    name: Keep the schedule alive
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # actions: write to re-enable workflows; contents: write for the marker commit.
+      actions: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: python -m pip install --upgrade pip && pip install -e .
+
+      - name: Re-enable the workflows; commit the marker if the repository is quiet
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python -m tula_insights keepalive ${{ inputs.dry_run && '--dry-run' || '' }}
