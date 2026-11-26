@@ -78,14 +78,23 @@ def run(
     category: str = "all",
     dry_run: bool = False,
     run_id: str | None = None,
+    purge: bool = True,
+    run_stats_out: str | None = None,
 ) -> CollectResult:
-    """Collect from every planned source. Returns a summary; writes rows as a side effect."""
+    """Collect from every planned source. Returns a summary; writes rows as a side effect.
+
+    In the scheduled pipeline each source runs as its own parallel job, so two things
+    change there: the platform purge runs once in a prepare step instead (`purge=False`),
+    and each job writes its run figures to a file (`run_stats_out`) for one final job
+    to merge into the run's row, instead of every job racing to create that row.
+    """
     run_id = run_id or make_run_id()
     result = CollectResult(run_id=run_id, dry_run=dry_run)
 
     store = _open_store(config, dry_run=dry_run, result=result)
     ledger = UsageLedger.from_store(config, store)
-    _enforce_storage_limits(store, config, result, dry_run=dry_run)
+    if purge:
+        _enforce_storage_limits(store, config, result, dry_run=dry_run)
 
     llm, search = _build_search(config, result)
 
@@ -162,7 +171,8 @@ def run(
                 )
                 result.warnings.append(f"Could not finish recording a source: {error}")
             result.warnings.extend(w for w in ctx.warnings if w not in result.warnings)
-    _record_run(store, config, result, llm=llm, dry_run=dry_run, source=source, category=category)
+    _record_run(store, config, result, llm=llm, dry_run=dry_run, source=source,
+                category=category, run_stats_out=run_stats_out)
 
     if sources and len(result.failed_sources) == len(sources):
         raise CollectorError(
@@ -279,13 +289,16 @@ def _record_run(
     dry_run: bool,
     source: str,
     category: str,
+    run_stats_out: str | None = None,
 ) -> None:
-    """Append this run's row, so the budget ledger can see what it spent.
+    """Record this run's figures, so the budget ledger can see what it spent.
 
-    Later stages update the same row by `run_id`. A dry run records nothing: it spent
-    no money and must not move the budget.
+    Normally straight into the run's row. With `run_stats_out`, into a JSON file
+    instead, for the pipeline's final job to merge — written even when the source
+    failed, because a failed source may still have spent money. A dry run records
+    nothing: it spent nothing and must not move the budget.
     """
-    if store is None or dry_run:
+    if dry_run or (store is None and not run_stats_out):
         return
 
     usage = llm.usage if llm is not None else None
@@ -310,6 +323,10 @@ def _record_run(
         errors=[line[:200] for line in (result.failures + result.warnings)[:10]],
         finished_at=now_utc(),
     )
+    if run_stats_out:
+        with open(run_stats_out, "w", encoding="utf-8") as handle:
+            handle.write(stats.model_dump_json())
+        return
     try:
         record_run(store, stats)
     except SheetStoreError as error:

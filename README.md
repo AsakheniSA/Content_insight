@@ -7,10 +7,10 @@ publishes a ranked daily feed that Irene and Gigi's content pipeline reads.
 Everything is stored in one Google Sheet. Everything runs on GitHub Actions. The only
 paid service is the Claude API.
 
-> **Build status: stage 5 of 10 complete.** Every stage of the pipeline now exists:
-> discovery (general web search, YouTube comments, manual submissions), classification,
-> dedupe and scoring, and the daily feed. Next comes the scheduled workflow that runs
-> them in order. The classifier, scoring and feed stages land next —
+> **Build status: stage 6 of 10 complete.** The full pipeline — discovery (general web
+> search, YouTube comments, manual submissions), classification, dedupe and scoring, and
+> the daily feed — runs every day at 05:17 SAST in GitHub Actions. Still to come:
+> the news feeds, alerting and keep-alive, the web view, and the full README. The classifier, scoring and feed stages land next —
 > see [`IMPLEMENTATION_BRIEF.md`](IMPLEMENTATION_BRIEF.md) section 11 for the order, and
 > the [Build progress](#build-progress) table below for where things stand.
 
@@ -148,8 +148,8 @@ repository secret).
 
 ### 5. Create the tabs
 
-The **Collect (manual)** workflow creates any missing tab itself on every run, so in
-Actions there is nothing to do. Locally:
+The **Pipeline** workflow creates any missing tab itself on every run, so in Actions
+there is nothing to do. Locally:
 
 ```bash
 python scripts/setup_sheet.py --dry-run
@@ -186,9 +186,6 @@ python -m tula_insights collect
 
 Add `--source web_questions`, `--source youtube` or `--source manual` to run just one.
 
-In Actions, use the **Collect (manual)** workflow (Actions → Collect (manual) → Run
-workflow). It is dispatch-only and defaults to a dry run; the scheduled pipeline that
-chains every stage arrives in stage 6.
 
 Classify, which reads every `new` item and fills in its category, underlying question
 and pain point:
@@ -208,8 +205,7 @@ python -m tula_insights classify
 `--dry-run` classifies a sample of 10 and writes nothing. `--sync` sends one request per
 item and saves as it goes. With neither, items go as one Message Batch at half price:
 the run waits up to 15 minutes for it, and anything unfinished is collected by the next
-run. In Actions, use **Classify (manual)**; it and **Collect (manual)** share one lock,
-so they never write to the sheet at the same time.
+run.
 
 Score, which merges repeat questions into insights and ranks them. It needs the
 embedding model's runtime, which is a separate install because it is large:
@@ -226,8 +222,7 @@ python scripts/calibrate_dedupe.py
 python -m tula_insights score --dry-run --log-format plain
 ```
 
-The first command downloads the model (about 67 MB) on first use. In Actions, use
-**Score (manual)**: it caches the model and checks the dedupe thresholds before scoring.
+The first command downloads the model (about 67 MB) on first use.
 
 Publish, which writes today's feed:
 
@@ -239,8 +234,6 @@ python -m tula_insights publish --dry-run --log-format plain
 python -m tula_insights publish
 ```
 
-In Actions, use **Publish (manual)**.
-
 Stages that are not built yet exit with code 3 and say which build stage they arrive in.
 Once they land, each takes the same options:
 
@@ -251,6 +244,42 @@ Once they land, each takes the same options:
 | `--dry-run` | Process everything, write nothing to Sheets, print a summary |
 | `--sync` | Use the standard Claude API instead of the Batch API |
 | `--log-format plain` | Human-readable logs instead of JSON |
+
+### In GitHub Actions: the Pipeline workflow
+
+**Pipeline** (`.github/workflows/pipeline.yml`) runs **every day at 05:17 SAST** (03:17
+UTC — off the hour, because scheduled runs near the top of the hour are often delayed).
+It runs six jobs:
+
+| Job | What it does |
+|---|---|
+| Plan and prepare | Validates config, plans the collect jobs, creates missing tabs, runs the YouTube 30-day purge |
+| Collect | **One job per source, in parallel.** One failing never stops the others |
+| Classify | Batch mode; runs if at least one source succeeded |
+| Score | Checks the dedupe thresholds against the real model, then scores |
+| Publish | Today's feed |
+| Report | Merges every job's figures into the run's single `runs` row; one combined summary |
+
+Classify, score and publish carry on with whatever arrived, so there is a feed every day
+even when a source fails. Only one run writes to the sheet at a time; a second waits.
+
+**To run it by hand:** Actions → **Pipeline** → **Run workflow**. Options:
+
+| Option | Default | Effect |
+|---|---|---|
+| `source` | all | Collect from one source only |
+| `category` | all | Collect for one category only |
+| `only_stage` | all | Re-run one stage (collect, classify, score or publish) |
+| `sync_mode` | off | Classify one request per item now, instead of a half-price batch |
+| `dry_run` | **on** | Do the work but write nothing — untick for a real run |
+| `break_source` | none | Isolation test: give one source invalid credentials and watch the rest carry on |
+
+Scheduled runs are always real runs. **To pause the schedule:** Actions → Pipeline →
+`···` → **Disable workflow**.
+
+**What each run leaves behind:** each job's section on the run page; a counts-only
+`run-summary` artifact; each job's logs as artifacts (counts and IDs only — the
+repository is public). All kept for 14 days.
 
 ### Tests and linting
 
@@ -346,8 +375,8 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 | 3 | Classifier (Claude Haiku, batch + sync) | **Done** |
 | 4 | Dedupe + scoring | **Done** |
 | 5 | Publish feed | **Done** |
-| 6 | Full `pipeline.yml` | Next |
-| 7 | `news_rss` (the rest landed in stage 2) | — |
+| 6 | Full `pipeline.yml` | **Done** |
+| 7 | `news_rss` (the rest landed in stage 2) | Next |
 | 8 | Alerting, keep-alive, budget guardrails | — |
 | 9 | Web view on Vercel | — |
 | 10 | Full README (brief section 12) | — |
