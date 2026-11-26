@@ -19,7 +19,8 @@ def test_repository_config_is_valid(config_dir):
     config = load_config()
     assert len(config.categories.categories) == 10
     assert "general_pet_care" in config.categories.ids
-    assert [s.name for s in config.enabled_sources] == ["web_questions", "manual", "youtube"]
+    assert [s.name for s in config.enabled_sources] == ["web_questions", "manual", "youtube",
+                                                        "news_rss"]
 
 
 def test_source_defaults_are_filled_in(config_dir):
@@ -35,7 +36,7 @@ def test_source_defaults_are_filled_in(config_dir):
 def test_disabled_sources_are_excluded(config_dir):
     config = load_config()
     names = {s.name for s in config.enabled_sources}
-    assert "news_rss" not in names
+    assert "reddit_search" not in names
 
 
 def test_weights_must_sum_to_one(config_dir):

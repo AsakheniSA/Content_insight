@@ -21,7 +21,8 @@ def ctx_for(config):
 
 
 def test_the_default_plan_is_every_enabled_source(config):
-    assert [s.name for s in plan_sources(config)] == ["web_questions", "manual", "youtube"]
+    assert [s.name for s in plan_sources(config)] == ["web_questions", "manual", "youtube",
+                                                      "news_rss"]
 
 
 def test_a_named_source_narrows_the_plan(config):
@@ -42,22 +43,21 @@ def test_an_unknown_source_names_the_real_ones(config):
 def test_asking_for_a_disabled_source_is_an_error_not_silence(config):
     """Silently collecting nothing from a source you asked for is the worse failure."""
     with pytest.raises(CollectorError, match="disabled"):
-        plan_sources(config, source="news_rss")
+        plan_sources(config, source="reddit_search")
 
 
 def test_an_enabled_source_with_no_module_fails_at_planning_time(config_dir):
     path = config_dir / "sources.yaml"
     data = yaml.safe_load(path.read_text())
-    for source in data["sources"]:
-        if source["name"] == "news_rss":
-            source["enabled"] = True
+    data["sources"].append({"name": "imaginary_source", "enabled": True, "regions": ["za"]})
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 
     with pytest.raises(CollectorError, match="no collector module"):
         plan_sources(load_config())
 
 
-@pytest.mark.parametrize("name", ["web_questions", "manual", "reddit_search", "youtube"])
+@pytest.mark.parametrize("name", ["web_questions", "manual", "reddit_search", "youtube",
+                                  "news_rss"])
 def test_building_a_known_collector(config, name):
     collector = build_collector(name, ctx_for(config))
     assert collector.name == name

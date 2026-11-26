@@ -21,7 +21,7 @@ on:
       source:
         description: "Collect from one source only"
         type: choice
-        options: [all, web_questions, youtube, manual]
+        options: [all, web_questions, youtube, news_rss, manual]
         default: all
       category:
         description: "Collect for one category id only, or 'all'"
@@ -43,7 +43,7 @@ on:
       break_source:
         description: "Isolation test: deliberately break one source's credentials"
         type: choice
-        options: [none, web_questions, youtube, manual]
+        options: [none, web_questions, youtube, news_rss, manual]
         default: none
 
 permissions:

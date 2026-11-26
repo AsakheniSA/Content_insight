@@ -130,14 +130,67 @@ sources:
         - "struggling"
 
   - name: news_rss
-    enabled: false
+    enabled: true
     description: >-
-      Curated RSS feeds from pet, veterinary and travel outlets, South African and
-      international. Headline, summary snippet, URL and date only.
+      Curated RSS and Atom feeds from pet, veterinary and pet-travel outlets, South
+      African and international. Headline, summary snippet, link and date only; the
+      article is never fetched. Each site's robots.txt is checked first.
     regions: [za, intl]
     requests_per_minute: 30
     daily_request_cap: 100
     max_items_per_run: 200
     settings:
-      feeds: []          # filled in at stage 7
+      # A generic identification, deliberately naming no person or organisation.
+      user_agent: "rss-collector/0.1 (automated feed reader)"
       max_age_days: 14
+      max_items_per_feed: 25
+      # For feeds marked `general: true` (they cover more than pets): keep only entries
+      # mentioning one of these.
+      default_require_terms: [pet, pets, dog, dogs, puppy, cat, cats, kitten, vet,
+                              veterinary, rabies, animal, animals]
+      # Every address below came from a web search on 2026-11-26 and could not be
+      # opened from the build environment. Each run reports every feed's outcome by
+      # id (read / HTTP error / not a feed / blocked by robots.txt); switch off any
+      # that fail with `enabled: false` rather than deleting them, so the history of
+      # what was tried stays here.
+      feeds:
+        # --- South Africa ---
+        - id: pets24
+          url: "https://pets24.co.za/feed"
+          region: za
+          found_via: "FeedSpot list of South African pet RSS feeds"
+        - id: stylish_paws
+          url: "https://stylishpaws.co.za/feed"
+          region: za
+          found_via: "FeedSpot list of South African pet RSS feeds"
+        - id: anima_strath
+          url: "https://anima-strath.co.za/feed"
+          region: za
+          found_via: "FeedSpot list of South African pet RSS feeds"
+        # --- pet travel ---
+        - id: tailwings
+          url: "https://tailwingspettravel.com/feed"
+          found_via: "pet-travel feed search"
+        - id: pass_pets
+          url: "https://passpets.co.uk/blog-feed.xml"
+          found_via: "pet-travel feed search"
+        - id: dog_jaunt
+          url: "https://dogjaunt.com/feed"
+          found_via: "pet-travel feed search"
+        - id: pets_pyjamas
+          url: "https://www.petspyjamas.com/blog/feed"
+          found_via: "pet-travel feed search (FeedSpot listing)"
+        - id: travelnuity
+          url: "https://travelnuity.com/feed"
+          found_via: "pet-travel feed search"
+        # --- general pet news ---
+        - id: pets_magazine_uk
+          url: "https://petsmag.co.uk/feed"
+          found_via: "pet-travel feed search (FeedSpot listing)"
+        - id: pet_gazette
+          url: "https://petgazette.biz/feed"
+          found_via: "pet-travel feed search"
+        # --- veterinary ---
+        - id: avma_news
+          url: "https://www.avma.org/avma-news.xml"
+          found_via: "cited by a third-party page that reported a 403 for it — least certain"

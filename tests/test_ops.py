@@ -37,7 +37,7 @@ def store():
 
 
 def test_plan_lists_the_enabled_sources(config):
-    assert ops.plan(config) == ["web_questions", "manual", "youtube"]
+    assert ops.plan(config) == ["web_questions", "manual", "youtube", "news_rss"]
     assert ops.plan(config, source="youtube") == ["youtube"]
 
 

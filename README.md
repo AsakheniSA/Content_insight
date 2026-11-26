@@ -7,10 +7,10 @@ publishes a ranked daily feed that Irene and Gigi's content pipeline reads.
 Everything is stored in one Google Sheet. Everything runs on GitHub Actions. The only
 paid service is the Claude API.
 
-> **Build status: stage 6 of 10 complete.** The full pipeline — discovery (general web
-> search, YouTube comments, manual submissions), classification, dedupe and scoring, and
-> the daily feed — runs every day at 05:17 SAST in GitHub Actions. Still to come:
-> the news feeds, alerting and keep-alive, the web view, and the full README. The classifier, scoring and feed stages land next —
+> **Build status: stage 7 of 10 complete.** The full pipeline — discovery (general web
+> search, YouTube comments, news feeds, manual submissions), classification, dedupe and
+> scoring, and the daily feed — runs every day at 05:17 SAST in GitHub Actions. Still
+> to come: alerting and keep-alive, the web view, and the full README. The classifier, scoring and feed stages land next —
 > see [`IMPLEMENTATION_BRIEF.md`](IMPLEMENTATION_BRIEF.md) section 11 for the order, and
 > the [Build progress](#build-progress) table below for where things stand.
 
@@ -312,6 +312,13 @@ Everything tunable lives in `config/`. No magic numbers in code.
 | `budget.yaml` | Monthly and daily spend caps, and the price table |
 | `settings.yaml` | Sheet sizing, retention and platform storage limits, Sheets rate limits, the classifier (model, effort, batch timing), logging |
 
+**Maintaining the news feeds.** The feeds live in `sources.yaml` under `news_rss →
+settings → feeds`, each with an `id`, `url` and `region`. Every run reports each feed's
+outcome by id — read, HTTP error, not a feed, or blocked by robots.txt — in the
+collect job's summary. Switch a failing feed off with `enabled: false` rather than
+deleting it, so the record of what was tried stays. Mark a feed `general: true` if it
+covers more than pets; only its entries that mention a pet term are kept.
+
 **Adding manual submissions.** Anyone on the team can add rows to the
 `manual_submissions` tab: paste the question or quote into `question_or_quote`, the link
 into `url`, and the site into `platform` (`reddit`, `facebook`, `instagram`, …). Leave
@@ -376,8 +383,8 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 | 4 | Dedupe + scoring | **Done** |
 | 5 | Publish feed | **Done** |
 | 6 | Full `pipeline.yml` | **Done** |
-| 7 | `news_rss` (the rest landed in stage 2) | Next |
-| 8 | Alerting, keep-alive, budget guardrails | — |
+| 7 | `news_rss` (the rest landed in stage 2) | **Done** |
+| 8 | Alerting, keep-alive, budget guardrails | Next |
 | 9 | Web view on Vercel | — |
 | 10 | Full README (brief section 12) | — |
 
@@ -454,6 +461,12 @@ Recorded as they are designed in, not discovered later.
   comment and the classifier's rewrite of it after 30 days, but the insight keeps its
   canonical question, which is that rewrite. Whether YouTube treats a paraphrase as API
   data is unresolved — worth a check before the feed goes live.
+- **The news-feed list is only as good as its sources.** The first feeds came from web
+  searches and could not be opened from the build environment, so each one was
+  confirmed by a real run before being kept. No official government or veterinary feed
+  (gov.za, NICD, AVMA) could be confirmed; adding one is a good next step once its
+  address is checked on the publisher's own page. Feeds carry no engagement signal, so
+  their items compete on recurrence, recency and trend.
 - **Search engagement signals are weak.** The search tool returns no view, vote or
   comment counts, so web items are scored on result position and on how often a page
   recurs across a run's queries.
