@@ -148,11 +148,11 @@ sources:
       # mentioning one of these.
       default_require_terms: [pet, pets, dog, dogs, puppy, cat, cats, kitten, vet,
                               veterinary, rabies, animal, animals]
-      # Every address below came from a web search on 2026-11-26 and could not be
-      # opened from the build environment. Each run reports every feed's outcome by
-      # id (read / HTTP error / not a feed / blocked by robots.txt); switch off any
-      # that fail with `enabled: false` rather than deleting them, so the history of
-      # what was tried stays here.
+      # Every address below came from a web search on 2026-11-26. The build environment
+      # could not open them, so a real run checked each one the same day: 10 of 11 read
+      # cleanly, none blocked us in robots.txt. Each run reports every feed's outcome by
+      # id; switch off any that keep failing with `enabled: false` rather than deleting
+      # them, so the history of what was tried stays here.
       feeds:
         # --- South Africa ---
         - id: pets24
@@ -177,6 +177,8 @@ sources:
         - id: dog_jaunt
           url: "https://dogjaunt.com/feed"
           found_via: "pet-travel feed search"
+          enabled: false
+          note: "HTTP 522 on 2026-11-26 (Cloudflare could not reach the site). Re-enable to try again."
         - id: pets_pyjamas
           url: "https://www.petspyjamas.com/blog/feed"
           found_via: "pet-travel feed search (FeedSpot listing)"

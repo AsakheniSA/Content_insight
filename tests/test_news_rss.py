@@ -200,6 +200,12 @@ def test_a_transient_error_is_retried(config):
     assert len(items) == 1
 
 
+def test_a_cloudflare_origin_error_is_retried(config):
+    web = FakeWeb({"https://pets.example/feed": [Resp(522), Resp(200, rss(FRESH))]})
+    items, _ = run(config, source_with(config, [FEED]), web)
+    assert len(items) == 1
+
+
 def test_the_daily_request_cap_stops_fetching(config):
     many = [{"id": f"f{n}", "url": f"https://s{n}.example/feed"} for n in range(5)]
     pages = {f"https://s{n}.example/feed": Resp(200, rss((f"Q{n}?", f"https://s{n}.example/q", "x", rfc822(1))))

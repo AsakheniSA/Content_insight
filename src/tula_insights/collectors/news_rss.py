@@ -45,7 +45,9 @@ log = get_logger(__name__)
 
 DEFAULT_USER_AGENT = "rss-collector/0.1 (automated feed reader)"
 FEED_ACCEPT = "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.5"
-RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+#: Rate limits, server errors, and Cloudflare's 520-524 "origin unreachable" family,
+#: which is often temporary.
+RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504, 520, 521, 522, 523, 524})
 _TAG = re.compile(r"<[^>]+>")
 
 #: Outcomes, as reported per feed.
