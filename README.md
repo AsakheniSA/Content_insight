@@ -7,28 +7,44 @@ publishes a ranked daily feed that Irene and Gigi's content pipeline reads.
 Everything is stored in one Google Sheet. Everything runs on GitHub Actions. The only
 paid service is the Claude API.
 
-> **Build status: stage 8 of 10 complete.** The full pipeline — discovery (general web
-> search, YouTube comments, news feeds, manual submissions), classification, dedupe and
-> scoring, and the daily feed — runs every day at 05:17 SAST in GitHub Actions, with
-> failure alerts, a keep-alive and budget caps. Still to come: the web view and the full
-> README — see [`IMPLEMENTATION_BRIEF.md`](IMPLEMENTATION_BRIEF.md) section 11 for the
-> order, and the [Build progress](#build-progress) table below for where things stand.
+**Contents:** [How it works](#how-it-works) · [The spreadsheet](#the-spreadsheet) ·
+[Setup](#setup) · [Secrets](#secrets-github-and-vercel) · [Running it](#running-it) ·
+[The web view](#the-web-view) · [Costs and caps](#costs-caps-and-reading-the-results) ·
+[Configuration](#configuration) · [Adding a source or category](#adding-a-source-or-a-category) ·
+[Known limitations](#known-limitations)
 
 ---
 
-## How a run will work
+## How it works
+
+Every day at 05:17 SAST a GitHub Actions workflow runs four stages, one after another:
 
 ```
-collect  ──▶  classify  ──▶  dedupe + score  ──▶  publish
-   │              │                │                  │
-   │              │                │                  └─▶  feed tab        (the contract)
-   │              │                └──────────────────────▶  insights tab
-   │              └───────────────────────────────────────▶  items tab (classified)
-   └──────────────────────────────────────────────────────▶  items tab (new)
+                 ┌── web_questions  (Claude web search: forums, Q&A, vet and travel sites)
+                 ├── youtube        (questions in comments on relevant videos)
+  1. COLLECT  ───┼── news_rss       (pet and travel news feeds)
+  (in parallel)  └── manual         (rows the team pastes into manual_submissions)
+                          │
+                          ▼  items tab, status "new"
+  2. CLASSIFY    Claude Haiku: relevant? which category? what is the underlying question?
+                          │
+                          ▼  items tab, status "classified" or "irrelevant"
+  3. SCORE       Merge repeat questions into insights (local embeddings, Claude judges
+                 the close calls), then score each insight 0–1
+                          │
+                          ▼  insights tab
+  4. PUBLISH     Pick today's top 6 (diversity rules, no repeats), write a content angle
+                          │
+                          ▼  feed tab  ──▶  web view (Vercel)  ──▶  /api/feed (JSON)
+                                       ──▶  Irene and Gigi's content pipeline
+
+  Around them:   plan and purge first · one combined report · an alert issue if anything failed
 ```
 
 Every stage reads its input from the sheet and writes its output back, so a stage can be
 re-run on its own and nothing depends on a runner's filesystem surviving between jobs.
+One source failing never stops the others, and classify, score and publish carry on with
+whatever arrived — there is a feed every day, even on a bad one.
 
 ---
 
@@ -77,6 +93,9 @@ angle blank.
 
 **Evidence links to YouTube comments are removed from feed rows after 30 days**
 (YouTube's storage limit); other links stay.
+
+**Reading it from code:** the same rows are available as JSON from the web view's
+[`/api/feed`](#the-web-view) endpoint, without access to the sheet.
 
 ---
 
@@ -135,8 +154,9 @@ mangle. Raw JSON is still accepted if you prefer it.
 ### 3. Anthropic API key
 
 Create a key at `console.anthropic.com` and put it in `.env` as `ANTHROPIC_API_KEY`.
-An organisation admin must also **enable the web search tool in the Claude Console** —
-without it the discovery stages cannot run. Not needed until stage 2.
+An organisation admin must also **enable the web search tool in the Claude Console** (in
+the organisation's settings) — without it the `web_questions` source cannot run. Web
+search is billed per search on top of tokens; see [Costs](#costs-caps-and-reading-the-results).
 
 ### 4. YouTube Data API key
 
@@ -164,6 +184,38 @@ headers that differ from the schema.
 
 ---
 
+## Secrets: GitHub and Vercel
+
+**GitHub** — repository → **Settings → Secrets and variables → Actions → New repository
+secret**:
+
+| Secret | What it is | Used by |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Claude API key, with web search enabled for the organisation | Collect, classify, score, publish |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | The service-account key file, base64 on one line | Every job that touches the sheet; the Web smoke test |
+| `SHEET_ID` | The spreadsheet ID. Can be a repository **variable** instead (Variables tab), since it is not secret | Same |
+| `YOUTUBE_API_KEY` | YouTube Data API v3 key, restricted to that API | Collect (youtube) |
+
+`GITHUB_TOKEN` is provided by GitHub automatically; the alert and keep-alive jobs use it
+with only the permissions their workflow grants. CI (`ci.yml`) needs no secrets at all.
+
+**Vercel** — project → **Settings → Environment Variables**, for Production and Preview:
+
+| Variable | Required? | What it is |
+|---|---|---|
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Yes | The same base64 key as the GitHub secret |
+| `SHEET_ID` | Yes | The spreadsheet ID |
+| `VIEW_PASSWORD` | No | Set it to put the pages behind a shared password; unset means open |
+| `FEED_API_TOKEN` | No | Set it to require a token on `/api/feed`; unset means open |
+
+**Locally**, the same names go in `.env` (pipeline) and `web/.env.local` (web view). Both
+files are git-ignored. Never paste a key into an issue, a commit or a chat.
+
+**Rotating a key:** create the new key, update it in GitHub and Vercel (and redeploy on
+Vercel), check the next run passes, then delete the old key.
+
+---
+
 ## Running it
 
 ```bash
@@ -184,7 +236,8 @@ python -m tula_insights collect --dry-run --log-format plain
 python -m tula_insights collect
 ```
 
-Add `--source web_questions`, `--source youtube` or `--source manual` to run just one.
+Add `--source web_questions`, `--source youtube`, `--source news_rss` or
+`--source manual` to run just one.
 
 
 Classify, which reads every `new` item and fills in its category, underlying question
@@ -234,8 +287,16 @@ python -m tula_insights publish --dry-run --log-format plain
 python -m tula_insights publish
 ```
 
-Stages that are not built yet exit with code 3 and say which build stage they arrive in.
-Once they land, each takes the same options:
+Housekeeping commands, which the workflow also runs:
+
+| Command | Does |
+|---|---|
+| `python -m tula_insights plan` | Lists the sources a run would collect from |
+| `python -m tula_insights purge` | Applies YouTube's 30-day storage limit to the sheet |
+| `python -m tula_insights budget` | Month-to-date and today's spend against every cap |
+| `python -m tula_insights report` | Summarises a run from its `runs` row (in Actions, the current run) |
+
+Every stage takes the same options:
 
 | Option | Effect |
 |---|---|
@@ -304,6 +365,14 @@ same for **Keep-alive**. Nothing is lost; the next scheduled run carries on.
 **What each run leaves behind:** each job's section on the run page; a counts-only
 `run-summary` artifact; each job's logs as artifacts (counts and IDs only — the
 repository is public). All kept for 14 days.
+
+**The other workflows:**
+
+| Workflow | Runs | By hand |
+|---|---|---|
+| **CI** (`ci.yml`) | On every push and pull request: ruff, pytest, config validation, the secrets check | — |
+| **Web** (`web.yml`) | On changes to `web/`: tests, build, then a counts-only read of the real sheet | Actions → Web → Run workflow |
+| **Keep-alive** (`keepalive.yml`) | Mondays 06:41 SAST | Actions → Keep-alive → Run workflow (`dry_run` on by default) |
 
 ### Tests and linting
 
@@ -388,6 +457,92 @@ change to `web/`, then reads the real sheet the way the app does and prints coun
 
 ---
 
+## Costs, caps and reading the results
+
+**What a day costs.** Everything paid runs on Claude API credit. The real runs on
+26 November 2026 cost about **US$0.20 each**, and most of that is web search fees
+(US$10 per 1,000 searches, from `budget.yaml`), about 18 searches a run. At one run a
+day that is roughly **US$6 a month** against a US$25 cap — an estimate from two days of
+data, so watch the first month's figures. YouTube, Google Sheets, GitHub Actions (public
+repository) and Vercel Hobby are free.
+
+The figures are estimates, computed from token counts and the price table in
+`budget.yaml` (`prices_checked_on` records when it was last checked against
+Anthropic's pricing page). The Claude Console's billing page is the real bill.
+
+**Caps.** Three of them apply to every search, and whichever bites first wins:
+`sources.yaml` → `daily_request_cap` per source, `budget.yaml` → `daily_caps` and
+`monthly_caps`, and `max_uses_per_request` per search request. The ledger reads what
+previous runs recorded in the `runs` tab, so there is no separate counter to drift.
+
+**To change a cap,** edit `config/budget.yaml` (`monthly_caps`, `daily_caps`,
+`on_cap_exceeded`) or a source's `daily_request_cap` in `config/sources.yaml`, and push
+to `main`. The next run uses the new values; CI rejects an invalid file before it lands.
+
+Before each paid step the pipeline checks month-to-date spend against `budget.yaml`:
+
+| Step | What stops at the cap |
+|---|---|
+| Collect | The web search and YouTube collectors stop searching; what they found so far is kept |
+| Classify | No new classification this run; items wait as `new` |
+| Score | The dedupe judge is switched off; questions in the judge band wait for a later run |
+| Publish | The feed is still published, without suggested angles |
+
+What happens next is `budget.yaml → on_cap_exceeded`:
+
+- `skip` (the default, as the brief asks): the step is flagged in its job summary and
+  in the `runs` row's `errors` (`budget: …`), and the run carries on and passes.
+- `fail`: the step still saves what it has, then fails — which opens a
+  `pipeline-failure` issue.
+
+A source's own `daily_request_cap`, or YouTube refusing a request, is reported but never
+counts as a budget breach.
+
+**Checking spend.** Every run's summary ends with month-to-date spend against each cap,
+and warns at 80%. To check at any time:
+
+```bash
+python -m tula_insights budget
+```
+
+**Reading a run's summary.** Open the run on the Actions tab; the **Report** job's
+summary has the whole run:
+
+| Line | Means |
+|---|---|
+| Collected by source | New items per source this run, after duplicates were dropped |
+| classified (n irrelevant) | Items the classifier handled; irrelevant ones are kept but never scored |
+| new insights / merged | Questions seen for the first time, and repeats folded into existing insights (with how many needed the Claude judge) |
+| served today | Rows this run added to today's feed (0 if the day was already full) |
+| tokens / est. cost | Claude usage and its estimated cost |
+| Budget | Month-to-date and today's use against every cap; `!` lines are at 80% or more |
+| Sheet size | Cells used against the archive threshold |
+| Warnings and errors | Short notes: a source that failed, a budget skip (`budget: …`), a feed that could not be read |
+
+Each collect job's own summary adds per-source detail (searches, feeds read, comments
+kept).
+
+**Reading the `runs` tab.** One row per pipeline run, written by the Report job:
+
+| Column | Means |
+|---|---|
+| `run_id` | `gha-<run id>-<attempt>`; matches the Actions run |
+| `trigger` | `schedule` or `dispatch` |
+| `status` | `success`, `partial` (a source failed but the run carried on) or `failed` |
+| `items_collected_by_source` | JSON: new items per source |
+| `items_classified`, `items_irrelevant` | Classifier output |
+| `new_insights`, `merged_into_existing`, `llm_judge_calls` | Dedupe output |
+| `served_today` | Feed rows added |
+| `tokens_in`, `tokens_out`, `tokens_cache_read` | Claude usage |
+| `est_cost_usd` | Estimated cost — the budget caps are summed from this column |
+| `api_calls_by_service` | JSON: web searches, Claude calls, YouTube searches and quota units |
+| `actions_run_url`, `git_sha` | Where the run is, and which code it ran |
+| `errors` | Up to 10 short notes, no collected text |
+
+The web view's **Runs** page shows the same rows with problems highlighted.
+
+---
+
 ## Configuration
 
 Everything tunable lives in `config/`. No magic numbers in code.
@@ -416,46 +571,6 @@ into `url`, and the site into `platform` (`reddit`, `facebook`, `instagram`, …
 safe to write who found it and why. Don't paste the poster's username into the quote —
 `u/` handles, `@handles`, emails and phone numbers are scrubbed anyway.
 
-**Adding a category** is a YAML-only change in `categories.yaml`, plus at least one
-keyword set in `keywords.yaml` — config validation refuses a category that no keyword
-set can ever discover. Bump the classifier prompt version when you do.
-
-**Adding a source** means a module in `src/tula_insights/collectors/`, an entry in
-`sources.yaml`, a line in `collectors/registry.py`, and a test. Nothing else changes. A
-source that is enabled in YAML but has no module fails at planning time rather than
-silently collecting nothing.
-
-**Caps.** Three of them apply to every search, and whichever bites first wins:
-`sources.yaml` → `daily_request_cap` per source, `budget.yaml` → `daily_caps` and
-`monthly_caps`, and `max_uses_per_request` per search request. The ledger reads what
-previous runs recorded in the `runs` tab, so there is no separate counter to drift.
-
-Before each paid step the pipeline checks month-to-date spend against `budget.yaml`:
-
-| Step | What stops at the cap |
-|---|---|
-| Collect | The web search and YouTube collectors stop searching; what they found so far is kept |
-| Classify | No new classification this run; items wait as `new` |
-| Score | The dedupe judge is switched off; questions in the judge band wait for a later run |
-| Publish | The feed is still published, without suggested angles |
-
-What happens next is `budget.yaml → on_cap_exceeded`:
-
-- `skip` (the default, as the brief asks): the step is flagged in its job summary and
-  in the `runs` row's `errors` (`budget: …`), and the run carries on and passes.
-- `fail`: the step still saves what it has, then fails — which opens a
-  `pipeline-failure` issue.
-
-A source's own `daily_request_cap`, or YouTube refusing a request, is reported but never
-counts as a budget breach.
-
-**Checking spend.** Every run's summary ends with month-to-date spend against each cap,
-and warns at 80%. To check at any time:
-
-```bash
-python -m tula_insights budget
-```
-
 Config errors fail at startup with the file, the field and the reason, before a run
 spends anything:
 
@@ -465,6 +580,46 @@ budget.yaml is invalid:
   - limits: max_input_tokens_per_request must stay below long_context_threshold_tokens,
     where requests are billed at a multiple of standard rates
 ```
+
+---
+
+## Adding a source or a category
+
+### A new source
+
+1. **Write the collector** in `src/tula_insights/collectors/<name>.py`: a class with a
+   `name` and a `collect(cfg, ctx)` method that returns `RawItem`s. Copy the shape of
+   `news_rss.py` (fetching) or `web_search.py` (search). Scrub text with
+   `utils.pii.scrub`, never log item text, and check the budget through `ctx.ledger`
+   before anything paid.
+2. **Register it** with one line in `src/tula_insights/collectors/registry.py`.
+3. **Configure it** with an entry in `config/sources.yaml`: `name`, `enabled`,
+   `regions`, `requests_per_minute`, `daily_request_cap`, `max_items_per_run`, and its
+   own `settings`. If its platform limits how long data may be kept, add it to
+   `settings.yaml → retention.api_data_max_days`.
+4. **Test it** in `tests/test_<name>.py` with recorded responses — no network in tests.
+5. **Add it to the workflow's choices:** the `source` and `break_source` lists at the
+   top of `.github/workflows/pipeline.yml`.
+6. **Try it:** `python -m tula_insights collect --source <name> --dry-run`, then a
+   dispatch with `source=<name>`.
+
+A source enabled in YAML without a registered module fails at planning time rather than
+silently collecting nothing.
+
+### A new category
+
+1. **Add it to `config/categories.yaml`**: `id`, `name`, `description` and a few
+   `example_questions`. The classifier's prompt and JSON schema are built from this
+   file, so no code changes.
+2. **Add at least one keyword set** for it in `config/keywords.yaml` — config
+   validation refuses a category nothing can discover.
+3. **Bump `version`** at the top of `categories.yaml`. Every classified row records
+   `classify_extract:<prompt version>/categories:<categories version>`, so rows stay
+   traceable to the rules that made them. (Changing `prompts/classify_extract.md`
+   bumps that file's own `version` the same way.)
+4. Run `python -m tula_insights validate-config`, then a classify dry run.
+
+Existing items are not reclassified automatically.
 
 ---
 
@@ -498,8 +653,8 @@ Deleting it in a later commit is not enough — the old commit still holds it.
 | 6 | Full `pipeline.yml` | **Done** |
 | 7 | `news_rss` (the rest landed in stage 2) | **Done** |
 | 8 | Alerting, keep-alive, budget guardrails | **Done** |
-| 9 | Web view on Vercel | **Built** — Vercel deploy pending |
-| 10 | Full README (brief section 12) | — |
+| 9 | Web view on Vercel | **Done** |
+| 10 | Full README (brief section 12) | **Done** |
 
 ---
 
@@ -522,8 +677,9 @@ Every row records the `model` and a `prompt_version` such as
 `classify_extract:1/categories:1`. **Change the prompt or the categories, bump the
 version**, so rows stay traceable to the rules that made them.
 
-Cost is roughly US$0.05 a day for about 400 items in batch mode. The system prompt
-(about 1,700 tokens) is cached, and the run checks the monthly cap before it starts.
+Classification is a small part of the daily cost: batch mode is half price and the
+system prompt (about 1,700 tokens) is cached. The run checks the monthly cap before it
+starts.
 
 ## How dedupe and scoring work
 
@@ -533,8 +689,8 @@ insight's question:
 
 | Similarity | What happens |
 |---|---|
-| 0.90 or more | Merged into that insight — no API call |
-| 0.80 to 0.90 | Claude Haiku judges whether it is really the same question (up to 60 a run; the rest wait for the next run) |
+| 0.93 or more | Merged into that insight — no API call |
+| 0.80 to 0.93 | Claude Haiku judges whether it is really the same question (up to 150 a run; the rest wait for the next run) |
 | below 0.80 | A new insight |
 
 Before scoring, the workflow checks these thresholds against the real model on a fixed
@@ -599,7 +755,14 @@ Recorded as they are designed in, not discovered later.
   possible later addition.
 - **Google Sheets is the only store**, which assumes a single writer. The Actions
   concurrency group enforces that. Collectors append only their own source's rows, so
-  parallel collection is safe.
+  parallel collection is safe. A spreadsheet has a cell limit (10 million is assumed;
+  Google's figure has varied, so check it) counted over every tab's whole grid, empty
+  cells included, and the Sheets API allows about 60 reads and 60 writes a minute — the
+  pipeline stays under 50.
+- **Vercel's Hobby plan is for non-commercial use** under Vercel's terms. If Tula's use
+  counts as commercial, move to a paid Vercel plan or another host; the web app uses
+  nothing Vercel-specific.
+- **The web view is open to anyone with its link** unless `VIEW_PASSWORD` is set.
 - **Scheduled workflows in public repositories are auto-disabled after 60 days of no
   repository activity.** GitHub does not define "activity", and nothing documented says
   re-enabling a workflow through the API resets the clock. So the keep-alive does both:
@@ -610,7 +773,7 @@ Recorded as they are designed in, not discovered later.
   an `items_archive` tab once the sheet passes 70% of its cell limit. Two problems: a
   tab in the same spreadsheet does not reduce the cell count, and scoring recomputes
   each insight from its items, so archived items would drop out of their insights'
-  counts. At about 250 items a day the threshold is roughly three years away (an
+  counts. At the first runs' rates the threshold is roughly 2½ to 6 years away (an
   estimate). Every run's summary reports the sheet's size against the threshold, so
   there is plenty of warning to decide on a second spreadsheet before it matters.
 
@@ -620,9 +783,10 @@ Recorded as they are designed in, not discovered later.
 
 ```
 config/                    all tunable values
-prompts/                   model prompts, versioned (from stage 2)
+prompts/                   model prompts, each with a version
 scripts/setup_sheet.py     create and validate the tabs
 scripts/check_secrets.py   the CI credential tripwire
+scripts/calibrate_dedupe.py  checks the dedupe thresholds against the real model
 src/tula_insights/
   schema.py                the tabs and their columns — the single source of truth
   models.py                domain objects, and how each maps to a row
