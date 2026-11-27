@@ -279,3 +279,38 @@ def test_bad_angles_are_rejected(angle, reason):
 def test_a_good_angle_is_tidied_and_kept():
     writer = AngleWriter("claude-haiku-5-5")
     assert writer.validate("  Help owners   plan ahead.\n") == "Help owners plan ahead."
+
+
+# --- filling in angles that failed earlier today ------------------------------------
+
+
+def test_todays_rows_without_an_angle_get_one_on_the_next_run(config, store):
+    seed(store, insight("a", 0.8), insight("b", 0.6, "gear_packing"))
+    run(config, store, FakeLlm([LlmError("down"), LlmError("down")]))
+    assert all(not r.suggested_angle for r in feed(store))
+
+    result = run(config, store, FakeLlm())
+    rows = feed(store)
+    assert len(rows) == 2, "nothing is served twice"
+    assert all(r.suggested_angle for r in rows)
+    assert result.angles_backfilled == 2
+    stored = {r["insight_id"]: r for r in store.read_rows("insights")}
+    assert stored["a"]["suggested_angle"]
+
+
+def test_rows_a_reviewer_has_acted_on_are_left_alone(config, store):
+    seed(store, insight("a", 0.8))
+    run(config, store, FakeLlm([LlmError("down")]))
+    number = next(n for n, r in store.read_rows_numbered("feed") if r["insight_id"] == "a")
+    store.worksheet("feed").update([["rejected"]], f"K{number}")
+    result = run(config, store, FakeLlm())
+    assert result.angles_backfilled == 0
+    assert feed(store)[0].suggested_angle == ""
+
+
+def test_a_dry_run_fills_nothing_in(config, store):
+    seed(store, insight("a", 0.8))
+    run(config, store, FakeLlm([LlmError("down")]))
+    llm = FakeLlm()
+    run(config, store, llm, dry_run=True)
+    assert llm.requests == [] and feed(store)[0].suggested_angle == ""

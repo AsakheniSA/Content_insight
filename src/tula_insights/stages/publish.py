@@ -71,6 +71,10 @@ class PublishResult:
     angles_failed: int = 0
     #: Angles lost to Claude API errors (as opposed to an angle failing our checks).
     api_errors: int = 0
+    #: Angle requests made this run, new rows and fill-ins together.
+    angle_attempts: int = 0
+    #: Today's rows that had no angle (an earlier failure) and got one this run.
+    angles_backfilled: int = 0
     est_cost_usd: float = 0.0
     served_rows: list[tuple[int, str, float]] = field(default_factory=list)  # rank, cat, score
     warnings: list[str] = field(default_factory=list)
@@ -203,6 +207,11 @@ def run(
                        cfg=cfg, now=now)
     ]
     result.eligible = len(eligible)
+
+    # Rows served earlier today without an angle (say the API was down) get one now.
+    if writer is not None and not dry_run:
+        _fill_missing_angles(store, config, writer, llm, insights, result, now)
+
     if slots == 0:
         log.info("publish.day_full", extra={"feed_date": result.feed_date})
         return _finish(store, config, result, llm, dry_run)
@@ -224,8 +233,9 @@ def run(
     rows: list[FeedRow] = []
     insight_updates: dict[str, dict[str, object]] = {}
     for offset, insight in enumerate(chosen):
-        angle = _angle(writer, llm, insight, pains.get(insight.insight_id, []), result)
         rank = len(todays) + offset + 1
+        angle = _angle(writer, llm, insight, pains.get(insight.insight_id, []), result,
+                       label=f"Rank {rank}")
         rows.append(FeedRow(
             feed_date=result.feed_date, rank=rank, insight_id=insight.insight_id,
             question=insight.canonical_question, category=insight.category, tags=insight.tags,
@@ -250,9 +260,55 @@ def run(
     return _finish(store, config, result, llm, dry_run)
 
 
-def _angle(writer, llm, insight: Insight, pains: list[str], result: PublishResult) -> str:
+def _fill_missing_angles(
+    store: SheetStore, config: AppConfig, writer, llm, insights: dict[str, Insight],
+    result: PublishResult, now: datetime,
+) -> None:
+    """Write angles for today's served rows that have none, in place.
+
+    Rows are addressed by sheet row number, guarded by their date and insight id, so a
+    row a reviewer moved or deleted in the meantime is skipped rather than overwritten.
+    """
+    missing = [
+        (number, FeedRow.from_sheet_row(row))
+        for number, row in store.read_rows_numbered(FEED.name)
+        if str(row.get("feed_date", "")).strip() == result.feed_date
+        and not str(row.get("suggested_angle", "")).strip()
+        and str(row.get("status", "")).strip() in ("", "served")
+    ]
+    missing = [(n, f) for n, f in missing if f.insight_id in insights]
+    if not missing:
+        return
+    decision = UsageLedger.from_store(config, store).allows_spend(0.01 * len(missing))
+    if not decision:
+        result.warnings.append(f"Missing angles not filled in: {decision.reason}")
+        result.cap_breaches.append(f"angles: {decision.reason}")
+        return
+
+    chosen = [insights[f.insight_id] for _, f in missing]
+    pains = _pain_points(store, chosen)
+    cells: dict[int, dict[str, object]] = {}
+    expect: dict[int, dict[str, object]] = {}
+    insight_updates: dict[str, dict[str, object]] = {}
+    for (number, row), insight in zip(missing, chosen, strict=True):
+        angle = _angle(writer, llm, insight, pains.get(insight.insight_id, []), result,
+                       label=f"Today's rank {row.rank} (filling in)")
+        if not angle:
+            continue
+        cells[number] = {"suggested_angle": angle}
+        expect[number] = {"feed_date": result.feed_date, "insight_id": row.insight_id}
+        insight_updates[insight.insight_id] = {"suggested_angle": angle, "angle_generated_at": now}
+    if cells:
+        result.angles_backfilled = store.update_cells_by_row(FEED.name, cells, expect=expect)
+        store.update_rows(INSIGHTS.name, insight_updates)
+
+
+def _angle(
+    writer, llm, insight: Insight, pains: list[str], result: PublishResult, *, label: str
+) -> str:
     if writer is None or llm is None:
         return ""
+    result.angle_attempts += 1
     problem = None
     reason = "unknown"
     for _attempt in range(2):
@@ -273,10 +329,7 @@ def _angle(writer, llm, insight: Insight, pains: list[str], result: PublishResul
             result.api_errors += 1
             break
     result.angles_failed += 1
-    result.warnings.append(
-        f"Rank {len(result.served_rows) + 1} ({insight.category}) was served without an "
-        f"angle: {reason}."
-    )
+    result.warnings.append(f"{label} ({insight.category}) has no angle: {reason}.")
     return ""
 
 
@@ -358,7 +411,8 @@ def summary_lines(result: PublishResult) -> list[str]:
         f"  already served today  {result.already_today}",
         f"  eligible insights     {result.eligible}",
         f"  served now            {result.served}",
-        f"  angles written        {result.angles_written} (failed: {result.angles_failed})",
+        f"  angles written        {result.angles_written} (failed: {result.angles_failed}; "
+        f"filled in for earlier rows: {result.angles_backfilled})",
         f"  est. cost             ${result.est_cost_usd:.4f}",
     ]
     if result.served_rows:

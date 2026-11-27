@@ -167,11 +167,11 @@ def _publish(config, *, dry_run: bool) -> int:
         return _fail("Publish failed", error)
     print("\n".join(publish_stage.summary_lines(result)))
     publish_stage.write_job_summary(result)
-    if result.served and result.api_errors >= result.served:
+    if result.angle_attempts and result.api_errors >= result.angle_attempts:
         # The feed is written; failing now opens an issue about the missing angles.
         return _fail(
             "Publish could not reach Claude",
-            f"today's {result.served} feed row(s) went out without angles. "
+            f"no angle could be written ({result.angle_attempts} tried). "
             + next((w for w in result.warnings if "API call failed" in w), ""),
         )
     return _cap_failure(config, result.cap_breaches)
