@@ -1,6 +1,5 @@
 import { Category, Chip, Freshness, Problem } from "@/components/bits.tsx";
 import { loadInsights } from "@/lib/data.ts";
-import { formatSast } from "@/lib/dates.ts";
 import { redditEvidence } from "@/lib/model.ts";
 
 export const metadata = { title: "Reddit · Tula Insights" };
@@ -62,9 +61,7 @@ export default async function RedditPage() {
                 <th>Question</th>
                 <th>Category</th>
                 <th className="num">Score</th>
-                <th className="num">Mentions</th>
                 <th>Thread</th>
-                <th>Last seen</th>
               </tr>
             </thead>
             <tbody>
@@ -76,7 +73,6 @@ export default async function RedditPage() {
                   </td>
                   <td><Category id={i.category} /></td>
                   <td className="num">{i.total_score === null ? "—" : i.total_score.toFixed(2)}</td>
-                  <td className="num">{i.item_count}</td>
                   <td className="small">
                     {threads.slice(0, 2).map((url, n) => (
                       <div key={url}>
@@ -86,7 +82,6 @@ export default async function RedditPage() {
                       </div>
                     ))}
                   </td>
-                  <td className="small">{formatSast(i.last_seen)}</td>
                 </tr>
               ))}
             </tbody>
