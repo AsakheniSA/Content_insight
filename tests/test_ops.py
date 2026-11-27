@@ -162,3 +162,65 @@ def test_the_report_summarises_the_whole_run(config, store, tmp_path, monkeypatc
 def test_a_run_with_no_row_says_so(config, store):
     lines, summary = ops.report(config, run_id="never", store=store)
     assert summary["recorded"] is False and "nothing was written" in lines[0]
+
+
+# --- the backup schedule's check -----------------------------------------------------
+
+
+def full_run(store, run_id, *, started, status="success",
+             stages=("collect", "classify", "score", "publish")):
+    store.append_rows("runs", [RunStats(
+        run_id=run_id, started_at=started, status=status,
+        inputs={s: {} for s in stages},
+    ).to_sheet_row()])
+
+
+MORNING = datetime(2026, 11, 27, 3, 20, tzinfo=UTC)  # 05:20 SAST
+
+
+def test_a_full_run_today_means_the_backup_stops(config, store):
+    full_run(store, "gha-1-1", started=MORNING)
+    assert ops.full_run_done_today(config, store=store, now=MORNING + timedelta(hours=3)) == "gha-1-1"
+
+
+def test_a_partial_run_counts_too(config, store):
+    full_run(store, "gha-2-1", started=MORNING, status="partial")
+    assert ops.full_run_done_today(config, store=store, now=MORNING) == "gha-2-1"
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"status": "failed"},
+    {"stages": ("collect", "classify")},
+    {"started": datetime(2026, 11, 26, 21, 59, tzinfo=UTC)},  # 23:59 SAST yesterday
+])
+def test_anything_less_than_todays_full_run_lets_the_backup_go_ahead(config, store, kwargs):
+    full_run(store, "x", **{"started": MORNING, **kwargs})
+    assert ops.full_run_done_today(config, store=store, now=MORNING + timedelta(hours=5)) == ""
+
+
+def test_the_day_turns_over_at_midnight_sast(config, store):
+    full_run(store, "late", started=datetime(2026, 11, 26, 22, 30, tzinfo=UTC))  # 00:30 SAST on the 27th
+    assert ops.full_run_done_today(config, store=store, now=MORNING) == "late"
+
+
+def test_the_check_hands_skip_to_later_jobs(config, store, tmp_path, monkeypatch):
+    out = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    monkeypatch.setattr(ops, "open_store", lambda config, dry_run=False: store)
+    full_run(store, "gha-3-1", started=datetime.now(UTC))
+    assert main(["already-ran"]) == 0
+    assert "skip=true" in out.read_text()
+
+
+def test_an_unreadable_sheet_lets_the_run_go_ahead(config, tmp_path, monkeypatch):
+    from tula_insights.store.sheets import SheetStoreError
+
+    out = tmp_path / "github_output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+
+    def broken(config, dry_run=False):
+        raise SheetStoreError("down")
+
+    monkeypatch.setattr(ops, "open_store", broken)
+    assert main(["already-ran"]) == 0
+    assert "skip=false" in out.read_text()

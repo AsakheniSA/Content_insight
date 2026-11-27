@@ -310,6 +310,11 @@ Every stage takes the same options:
 
 **Pipeline** (`.github/workflows/pipeline.yml`) runs **every day at 05:17 SAST** (03:17
 UTC — off the hour, because scheduled runs near the top of the hour are often delayed).
+GitHub can delay or even drop a scheduled run when it is busy — it dropped the first one,
+on 27 November 2026 — so the schedule has **two backup times, 07:47 and 10:17 SAST**.
+Each backup first checks the `runs` tab and stops at once, spending nothing, if today's
+full run (collect, classify, score and publish, status `success` or `partial`) is
+already done. A manual run always goes ahead.
 It runs seven jobs:
 
 | Job | What it does |

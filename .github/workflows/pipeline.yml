@@ -1,7 +1,10 @@
 # The daily pipeline: collect -> classify -> score -> publish, then one combined report.
 #
 # Runs every day at 05:17 SAST (03:17 UTC — off the hour, because scheduled runs near
-# the top of the hour are often delayed). Run it by hand from the Actions tab too.
+# the top of the hour are often delayed). GitHub may delay or even drop a scheduled run
+# when it is busy, so two backup times follow (07:47 and 10:17 SAST): each first checks
+# the runs tab and stops at once, spending nothing, if today's full run is already done.
+# Run it by hand from the Actions tab too; a manual run always goes ahead.
 #
 # State passes between jobs through the Google Sheet only; no job relies on files left
 # by another, apart from small counts-only artifacts. Each source collects in its own
@@ -18,7 +21,9 @@ name: Pipeline
 
 on:
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "17 3 * * *"   # 05:17 SAST, the main run
+    - cron: "47 5 * * *"   # 07:47 SAST, backup
+    - cron: "17 8 * * *"   # 10:17 SAST, backup
   workflow_dispatch:
     inputs:
       source:
@@ -69,8 +74,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      sources: ${{ steps.plan.outputs.sources }}
+      sources: ${{ steps.plan.outputs.sources || '[]' }}
       has_sources: ${{ steps.plan.outputs.has_sources }}
+      skip: ${{ steps.already.outputs.skip }}
     env:
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       SHEET_ID: ${{ secrets.SHEET_ID || vars.SHEET_ID }}
@@ -84,33 +90,44 @@ jobs:
       - name: Install
         run: python -m pip install --upgrade pip && pip install -e .
 
+      # Scheduled runs only: a backup time stops here if today's run is already done.
+      - name: Check whether today's run is already done
+        id: already
+        if: github.event_name == 'schedule'
+        run: python -m tula_insights already-ran
+
       - name: Validate the config before spending anything
+        if: steps.already.outputs.skip != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: python -m tula_insights validate-config
 
       - name: Plan the collect jobs
+        if: steps.already.outputs.skip != 'true'
         id: plan
         run: python -m tula_insights plan --source "${{ inputs.source || 'all' }}"
 
       - name: Make sure the sheet's tabs exist
+        if: steps.already.outputs.skip != 'true'
         run: python scripts/setup_sheet.py ${{ inputs.dry_run && '--dry-run' || '' }}
 
       # Once per run, here, rather than once in every parallel collect job.
       - name: Enforce platform storage limits (YouTube's 30 days)
+        if: steps.already.outputs.skip != 'true'
         run: python -m tula_insights purge ${{ inputs.dry_run && '--dry-run' || '' }}
 
       # Month-to-date spend against every cap. Each paid step checks its own cap again
       # before spending; this is the early warning in the run summary.
       - name: Check the budget
+        if: steps.already.outputs.skip != 'true'
         run: python -m tula_insights budget
 
   collect:
     name: Collect (${{ matrix.source }})
     needs: plan
     if: >-
-      needs.plan.outputs.has_sources == 'true' &&
+      needs.plan.outputs.has_sources == 'true' && needs.plan.outputs.skip != 'true' &&
       (github.event_name == 'schedule' || inputs.only_stage == 'all' || inputs.only_stage == 'collect')
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -180,7 +197,7 @@ jobs:
     name: Classify
     needs: [plan, collect]
     if: >-
-      always() && needs.plan.result == 'success' &&
+      always() && needs.plan.result == 'success' && needs.plan.outputs.skip != 'true' &&
       (github.event_name == 'schedule' || inputs.only_stage == 'all' || inputs.only_stage == 'classify')
     runs-on: ubuntu-latest
     # A batch run may wait up to 15 minutes for its batch.
@@ -238,7 +255,7 @@ jobs:
     needs: [plan, classify]
     # Runs even if classify failed: scoring yesterday's insights still gives a feed.
     if: >-
-      always() && needs.plan.result == 'success' &&
+      always() && needs.plan.result == 'success' && needs.plan.outputs.skip != 'true' &&
       (github.event_name == 'schedule' || inputs.only_stage == 'all' || inputs.only_stage == 'score')
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -284,7 +301,7 @@ jobs:
     name: Publish
     needs: [plan, score]
     if: >-
-      always() && needs.plan.result == 'success' &&
+      always() && needs.plan.result == 'success' && needs.plan.outputs.skip != 'true' &&
       (github.event_name == 'schedule' || inputs.only_stage == 'all' || inputs.only_stage == 'publish')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -319,7 +336,7 @@ jobs:
   report:
     name: Report
     needs: [plan, collect, classify, score, publish]
-    if: always()
+    if: always() && needs.plan.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from ..budget import WARN_FRACTION, UsageLedger, cap_lines
@@ -55,6 +56,33 @@ def purge(
         "items_purged": purge_expired(store, config),
         "feed_rows_links_purged": purge_expired_feed_links(store, config),
     }
+
+
+#: The stages a run must have done to count as today's full run.
+FULL_RUN_STAGES = frozenset({"collect", "classify", "score", "publish"})
+
+
+def full_run_done_today(
+    config: AppConfig, *, store: SheetStore | None = None, now: datetime | None = None
+) -> str:
+    """The run_id of a full run that already finished today (SAST), or "".
+
+    The schedule has backup times in case GitHub drops the main one; a backup calls this
+    first and stops if the day's run is already done, so it never spends twice. A row
+    with status `success` or `partial` (a source failed but the run carried on) counts.
+    """
+    store = store or open_store(config, dry_run=True)
+    offset = timedelta(hours=config.settings.run.local_utc_offset_hours)
+    day = ((now or datetime.now(UTC)) + offset).date()
+    for row in store.read_rows(RUNS.name):
+        stats = RunStats.from_sheet_row(row)
+        if stats.started_at is None or stats.status not in ("success", "partial"):
+            continue
+        if (stats.started_at + offset).date() != day:
+            continue
+        if set(stats.inputs) >= FULL_RUN_STAGES:
+            return stats.run_id
+    return ""
 
 
 def record_collect_stats(

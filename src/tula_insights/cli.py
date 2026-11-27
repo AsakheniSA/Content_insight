@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
         "stage",
         choices=["validate-config", "setup-sheet", "collect", "classify", "score",
                  "publish", "plan", "purge", "record-run", "report", "budget", "alert",
-                 "keepalive", *PENDING_STAGES],
+                 "keepalive", "already-ran", *PENDING_STAGES],
         help="which pipeline stage to run",
     )
     parser.add_argument(
@@ -111,6 +111,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _report(config)
     if args.stage == "budget":
         return _budget(config)
+    if args.stage == "already-ran":
+        return _already_ran(config)
     if args.stage == "alert":
         return _alert(config)
     if args.stage == "keepalive":
@@ -263,6 +265,25 @@ def _budget(config) -> int:
         return _fail("Budget check failed", error)
     print("\n".join(lines))
     ops.write_budget_summary(lines, warnings)
+    return 0
+
+
+def _already_ran(config) -> int:
+    """Hand `skip=true` to later jobs if today's full run is already done."""
+    from .stages import ops
+    from .store.sheets import SheetStoreError
+
+    try:
+        run_id = ops.full_run_done_today(config)
+    except (SheetStoreError, ConfigError) as error:
+        # Better to risk a second run than to miss a day.
+        print(f"Could not check today's runs, so this run goes ahead: {error}")
+        run_id = ""
+    ops.write_github_output({"skip": "true" if run_id else "false"})
+    if run_id:
+        print(f"Today's full run is already done ({run_id}); this backup run stops here.")
+    else:
+        print("No full run yet today; this run goes ahead.")
     return 0
 
 
