@@ -61,11 +61,10 @@ export default async function RedditPage() {
                 <th>Question</th>
                 <th>Category</th>
                 <th className="num">Score</th>
-                <th>Thread</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ insight: i, threads, subreddits }) => (
+              {rows.map(({ insight: i }) => (
                 <tr key={i.insight_id}>
                   <td className="question-cell">
                     <div>{i.canonical_question}</div>
@@ -73,15 +72,6 @@ export default async function RedditPage() {
                   </td>
                   <td><Category id={i.category} /></td>
                   <td className="num">{i.total_score === null ? "—" : i.total_score.toFixed(2)}</td>
-                  <td className="small">
-                    {threads.slice(0, 2).map((url, n) => (
-                      <div key={url}>
-                        <a href={url} target="_blank" rel="noopener noreferrer nofollow">
-                          {subreddits[0] ?? "reddit"} thread{threads.length > 1 ? ` ${n + 1}` : ""}
-                        </a>
-                      </div>
-                    ))}
-                  </td>
                 </tr>
               ))}
             </tbody>
