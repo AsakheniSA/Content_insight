@@ -68,6 +68,9 @@ class ClassifyResult:
     items_submitted: int = 0
     est_cost_usd: float = 0.0
     skipped_reason: str = ""
+    #: Set when Claude rejected the stage's requests; the CLI then fails the job so the
+    #: alert opens an issue. Items are kept and retried by the next run.
+    api_failure: str = ""
     dry_run: bool = False
     categories: dict[str, int] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
@@ -226,6 +229,7 @@ class _Stage:
             batch = self.llm.create_batch(requests)
         except LlmError as error:
             self.result.warnings.append(f"Could not submit the batch; items stay 'new': {error}")
+            self.result.api_failure = str(error)
             return None
         batch_id = batch.id
         # Recorded straight away: a batch nobody remembers is paid for and never read.

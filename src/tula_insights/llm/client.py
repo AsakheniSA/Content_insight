@@ -161,6 +161,23 @@ def _status_of(error: BaseException) -> int | None:
     return getattr(error, "status_code", None)
 
 
+def _api_message(error: BaseException, limit: int = 300) -> str:
+    """Anthropic's own explanation, one line, cut short.
+
+    Its error messages describe the request's problem (credit, a bad parameter) and do
+    not echo the prompt, so they are safe in public logs and issues.
+    """
+    body = getattr(error, "body", None)
+    message = ""
+    if isinstance(body, dict):
+        inner = body.get("error")
+        if isinstance(inner, dict):
+            message = str(inner.get("message") or "")
+    message = message or str(getattr(error, "message", "") or error)
+    message = " ".join(message.split())
+    return message if len(message) <= limit else message[: limit - 1] + "…"
+
+
 def _is_retryable(error: BaseException) -> bool:
     if isinstance(error, anthropic.APIConnectionError | anthropic.APITimeoutError):
         return True
@@ -288,12 +305,22 @@ class LlmClient:
             )
         except anthropic.NotFoundError as error:
             raise BatchNotFound(f"{what}: batch not found (it may have expired)") from error
+        except anthropic.BadRequestError as error:
+            raise LlmError(f"{what} failed: {self._explain_bad_request(error)}") from error
         except anthropic.APIError as error:
-            raise LlmError(f"{what} failed (HTTP {_status_of(error)}).") from error
+            raise LlmError(
+                f"{what} failed (HTTP {_status_of(error)}): {_api_message(error)}"
+            ) from error
 
     @staticmethod
     def _explain_bad_request(error: anthropic.BadRequestError) -> str:
-        message = str(getattr(error, "message", "") or error)
+        message = _api_message(error)
+        if "credit balance" in message.lower():
+            return (
+                "The Claude API account has run out of credit. Top it up in the Claude "
+                "Console (Billing). Nothing is lost: new items wait as 'new' and the next "
+                f"run catches up.\nAPI said: {message}"
+            )
         if "not accessible to our user agent" in message.lower():
             return (
                 "A domain in this source's allowed_domains blocks Anthropic's crawler, so "

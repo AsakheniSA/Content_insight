@@ -69,6 +69,8 @@ class PublishResult:
     served: int = 0
     angles_written: int = 0
     angles_failed: int = 0
+    #: Angles lost to Claude API errors (as opposed to an angle failing our checks).
+    api_errors: int = 0
     est_cost_usd: float = 0.0
     served_rows: list[tuple[int, str, float]] = field(default_factory=list)  # rank, cat, score
     warnings: list[str] = field(default_factory=list)
@@ -266,8 +268,9 @@ def _angle(writer, llm, insight: Insight, pains: list[str], result: PublishResul
             if not error.retryable:
                 break
             problem = reason
-        except LlmError:
-            reason = "the API call failed"
+        except LlmError as error:
+            reason = f"the API call failed: {str(error)[:200]}"
+            result.api_errors += 1
             break
     result.angles_failed += 1
     result.warnings.append(
