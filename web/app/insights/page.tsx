@@ -1,7 +1,7 @@
 import { Category, Chip, Evidence, Freshness, Problem, Status } from "@/components/bits.tsx";
 import { loadInsights } from "@/lib/data.ts";
 import { formatSast } from "@/lib/dates.ts";
-import { type Insight, label } from "@/lib/model.ts";
+import { type Insight, label, redditEvidence } from "@/lib/model.ts";
 
 export const metadata = { title: "Insights · Tula Insights" };
 
@@ -23,18 +23,24 @@ export default async function InsightsPage({
   const category = pick("category");
   const tag = pick("tag");
   const status = pick("status") || "active";
+  const source = pick("source");
   const sort = SORTS[pick("sort")] ? pick("sort") : "score";
 
   const data = await loadInsights();
   const all = data.items.filter((i) => i.insight_id && i.canonical_question);
   const categories = [...new Set(all.map((i) => i.category).filter(Boolean))].sort();
   const tags = [...new Set(all.flatMap((i) => i.tags))].sort();
+  const sources = [...new Set(all.flatMap((i) => i.sources))].sort();
+  const fromSource = (i: Insight) =>
+    !source ||
+    (source === "reddit" ? redditEvidence(i.evidence_urls).threads.length > 0 : i.sources.includes(source));
 
   const needle = q.toLowerCase();
   const matches = all
     .filter((i) => status === "all" || i.status === status)
     .filter((i) => !category || i.category === category)
     .filter((i) => !tag || i.tags.includes(tag))
+    .filter(fromSource)
     .filter((i) => !needle || i.canonical_question.toLowerCase().includes(needle))
     .sort((a, b) => {
       const ka = SORTS[sort].key(a);
@@ -60,6 +66,11 @@ export default async function InsightsPage({
         <select name="tag" defaultValue={tag} aria-label="Tag">
           <option value="">All tags</option>
           {tags.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select name="source" defaultValue={source} aria-label="Source">
+          <option value="">All sources</option>
+          <option value="reddit">Reddit</option>
+          {sources.map((s) => <option key={s} value={s}>{label(s)}</option>)}
         </select>
         <select name="status" defaultValue={status} aria-label="Status">
           <option value="active">Active</option>
@@ -106,7 +117,12 @@ export default async function InsightsPage({
                 <td><Category id={i.category} /></td>
                 <td className="num">{i.total_score === null ? "—" : i.total_score.toFixed(2)}</td>
                 <td className="num">{i.item_count}</td>
-                <td className="small">{i.sources.join(", ") || "—"}</td>
+                <td className="small">
+                  {i.sources.join(", ") || "—"}
+                  {redditEvidence(i.evidence_urls).subreddits.map((r) => (
+                    <div key={r}><Chip tone="reddit">{r}</Chip></div>
+                  ))}
+                </td>
                 <td className="small">{formatSast(i.last_seen)}</td>
                 <td className="small">{i.times_served ? `${i.times_served}× · ${formatSast(i.last_served_at)}` : "Not yet"}</td>
               </tr>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Category, Chip, Evidence, Freshness, LastRun, Problem, Status } from "@/components/bits.tsx";
 import { loadFeed, loadRuns } from "@/lib/data.ts";
 import { isIsoDate, todaySast } from "@/lib/dates.ts";
+import { redditEvidence } from "@/lib/model.ts";
 
 export const metadata = { title: "Today · Tula Insights" };
 
@@ -60,6 +61,7 @@ export default async function TodayPage({
               <div className="meta">
                 <Category id={e.category} />
                 {e.tags.map((t) => <Chip key={t}>{t}</Chip>)}
+                {redditEvidence(e.evidence_urls).subreddits.map((r) => <Chip key={r} tone="reddit">{r}</Chip>)}
                 <Status value={e.status} />
                 {e.total_score !== null && <span className="muted small">score {e.total_score.toFixed(2)}</span>}
               </div>

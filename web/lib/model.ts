@@ -163,6 +163,29 @@ export function isWebUrl(value: string): boolean {
   }
 }
 
+export function isRedditUrl(value: string): boolean {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host === "reddit.com" || host.endsWith(".reddit.com") || host === "redd.it";
+  } catch {
+    return false;
+  }
+}
+
+/** `https://www.reddit.com/r/PetAdvice/comments/…` → `r/PetAdvice`; "" if none. */
+export function subredditOf(value: string): string {
+  if (!isRedditUrl(value)) return "";
+  const match = /\/r\/([A-Za-z0-9_]+)/.exec(new URL(value).pathname);
+  return match ? `r/${match[1]}` : "";
+}
+
+/** The Reddit threads behind an entry, and their subreddits. */
+export function redditEvidence(urls: string[]): { threads: string[]; subreddits: string[] } {
+  const threads = urls.filter(isRedditUrl);
+  const subreddits = [...new Set(threads.map(subredditOf).filter(Boolean))];
+  return { threads, subreddits };
+}
+
 export function hostOf(value: string): string {
   try {
     return new URL(value).hostname.replace(/^www\./, "");

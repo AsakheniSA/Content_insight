@@ -70,6 +70,7 @@ h2 { font-size: 17px; margin: 0 0 8px; line-height: 1.4; }
 .chip-good { background: var(--good-bg); color: var(--good); }
 .chip-warn { background: var(--warn-bg); color: var(--warn); }
 .chip-bad { background: var(--bad-bg); color: var(--bad); }
+.chip-reddit { background: #FFE5DA; color: #A33A12; }
 
 .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 8px; }
 

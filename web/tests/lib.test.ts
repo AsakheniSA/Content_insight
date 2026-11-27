@@ -193,3 +193,18 @@ test("the feed API reports a sheet failure without details", async () => {
   assert.equal(response.status, 502);
   assert.ok(!(await response.text()).includes("xyz"));
 });
+
+// --- Reddit ------------------------------------------------------------------------
+
+import { isRedditUrl, redditEvidence, subredditOf } from "../lib/model.ts";
+
+test("Reddit threads are recognised, and their subreddit read from the link", () => {
+  const thread = "https://www.reddit.com/r/PetAdvice/comments/1y5s8x1/my_dog_just_ate_a_toy/";
+  assert.ok(isRedditUrl(thread) && isRedditUrl("https://old.reddit.com/r/cats/") && isRedditUrl("https://redd.it/abc"));
+  assert.ok(!isRedditUrl("https://notreddit.com/r/x") && !isRedditUrl("not a url"));
+  assert.equal(subredditOf(thread), "r/PetAdvice");
+  assert.equal(subredditOf("https://redd.it/abc"), "");
+  const found = redditEvidence([thread, "https://example.com/a", "https://www.reddit.com/r/PetAdvice/comments/2/x/"]);
+  assert.equal(found.threads.length, 2);
+  assert.deepEqual(found.subreddits, ["r/PetAdvice"]);
+});
