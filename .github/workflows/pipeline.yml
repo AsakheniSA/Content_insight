@@ -53,6 +53,10 @@ on:
         type: choice
         options: [none, web_questions, youtube, news_rss, manual]
         default: none
+      only_if_not_done:
+        description: "Stop at once if today's full run is already done (used by the daily Vercel trigger)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -90,10 +94,10 @@ jobs:
       - name: Install
         run: python -m pip install --upgrade pip && pip install -e .
 
-      # Scheduled runs only: a backup time stops here if today's run is already done.
+      # Scheduled runs, and the daily trigger from Vercel: stop here if today's run is done.
       - name: Check whether today's run is already done
         id: already
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || inputs.only_if_not_done
         run: python -m tula_insights already-ran
 
       - name: Validate the config before spending anything

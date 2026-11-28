@@ -208,3 +208,45 @@ test("Reddit threads are recognised, and their subreddit read from the link", ()
   assert.equal(found.threads.length, 2);
   assert.deepEqual(found.subreddits, ["r/PetAdvice"]);
 });
+
+// --- the daily trigger -------------------------------------------------------------
+
+import { handleDispatch } from "../lib/dispatch.ts";
+
+function fakeFetch(status: number, seen: { url?: string; init?: RequestInit }[]) {
+  return (async (url: string, init?: RequestInit) => {
+    seen.push({ url, init });
+    return new Response(null, { status });
+  }) as unknown as typeof fetch;
+}
+const cronCall = (headers: Record<string, string>, deps: Parameters<typeof handleDispatch>[1]) =>
+  handleDispatch(new Request("https://x.test/api/cron/run-pipeline", { headers }), deps);
+
+test("the daily trigger starts the pipeline as a real run that stops if the day is done", async () => {
+  const seen: { url?: string; init?: RequestInit }[] = [];
+  const res = await cronCall({ Authorization: "Bearer s3cret" },
+    { cronSecret: "s3cret", githubToken: "ghp_test", fetchFn: fakeFetch(204, seen) });
+  assert.equal(res.status, 200);
+  assert.equal(seen[0].url, "https://api.github.com/repos/AsakheniSA/Content_insight/actions/workflows/pipeline.yml/dispatches");
+  const body = JSON.parse(String(seen[0].init?.body));
+  assert.deepEqual(body, { ref: "main", inputs: { dry_run: "false", only_if_not_done: "true" } });
+  assert.equal((seen[0].init?.headers as Record<string, string>).Authorization, "Bearer ghp_test");
+});
+
+test("the daily trigger refuses callers without the secret, and is off without one", async () => {
+  const seen: { url?: string; init?: RequestInit }[] = [];
+  const deps = { cronSecret: "s3cret", githubToken: "ghp_test", fetchFn: fakeFetch(204, seen) };
+  assert.equal((await cronCall({}, deps)).status, 401);
+  assert.equal((await cronCall({ Authorization: "Bearer nope" }, deps)).status, 401);
+  assert.equal((await cronCall({ Authorization: "Bearer s3cret" }, { ...deps, cronSecret: undefined })).status, 503);
+  assert.equal((await cronCall({ Authorization: "Bearer s3cret" }, { ...deps, githubToken: undefined })).status, 503);
+  assert.equal(seen.length, 0, "nothing reaches GitHub unless the caller is authorised");
+});
+
+test("the daily trigger explains a refused token without echoing it", async () => {
+  const res = await cronCall({ Authorization: "Bearer s3cret" },
+    { cronSecret: "s3cret", githubToken: "ghp_secret_value", fetchFn: fakeFetch(403, []) });
+  assert.equal(res.status, 502);
+  const text = await res.text();
+  assert.ok(text.includes("Actions read and write") && !text.includes("ghp_secret_value"));
+});

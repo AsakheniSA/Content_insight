@@ -310,11 +310,19 @@ Every stage takes the same options:
 
 **Pipeline** (`.github/workflows/pipeline.yml`) runs **every day at 05:17 SAST** (03:17
 UTC — off the hour, because scheduled runs near the top of the hour are often delayed).
-GitHub can delay or even drop a scheduled run when it is busy — it dropped the first one,
-on 27 November 2026 — so the schedule has **two backup times, 07:47 and 10:17 SAST**.
-Each backup first checks the `runs` tab and stops at once, spending nothing, if today's
-full run (collect, classify, score and publish, status `success` or `partial`) is
-already done. A manual run always goes ahead.
+GitHub can delay or even drop a scheduled run when it is busy. In the first days it
+dropped one, fired another four hours late, and on 28 November fired none at all — so
+the pipeline has **two kinds of trigger**:
+
+1. **GitHub's own schedule:** 05:17 SAST, with backups at 07:47 and 10:17.
+2. **A daily trigger from Vercel**, independent of GitHub's scheduler: the web app's
+   `/api/cron/run-pipeline` is called once a day around 06:30 SAST — see
+   [the daily trigger](#the-daily-trigger-from-vercel).
+
+Whichever fires first does the day's run. Every later one first checks the `runs` tab
+and stops at once, spending nothing, if today's full run (collect, classify, score and
+publish, status `success` or `partial`) is already done. A manual run from the Actions
+tab always goes ahead, unless you tick `only_if_not_done`.
 It runs seven jobs:
 
 | Job | What it does |
@@ -446,7 +454,24 @@ left out. With a token set, a wrong or missing one gets 401.
 
 3. Deploy, and share the URL inside the organisation.
 
-The app uses nothing Vercel-specific, so any host that runs Node.js 20.9 or later works:
+### The daily trigger from Vercel
+
+`web/vercel.json` asks Vercel to call `/api/cron/run-pipeline` once a day at 04:30 UTC
+(06:30 SAST). On the free Hobby plan Vercel fires it some time within that hour. The
+route asks GitHub to start the Pipeline workflow as a real run with `only_if_not_done`,
+so it does nothing if the day's run already happened. To switch it on, add two
+environment variables in Vercel (Production) and redeploy:
+
+| Variable | Value |
+|---|---|
+| `CRON_SECRET` | A long random string, e.g. `openssl rand -hex 32`. Vercel sends it with every scheduled call, and the route refuses any call without it |
+| `GITHUB_DISPATCH_TOKEN` | A **fine-grained** GitHub personal access token: GitHub → Settings → Developer settings → Fine-grained tokens → Generate. Repository access: **only** `Content_insight`. Permissions: **Actions — Read and write**, nothing else. Note its expiry date and replace it before then |
+
+Without them the route returns 503 and only GitHub's schedule runs the pipeline. Check
+it works in Vercel: project → Settings → Cron Jobs shows the job and lets you run it
+once by hand; the Actions tab then shows a Pipeline run.
+
+The app uses nothing Vercel-specific apart from that optional `vercel.json`, so any host that runs Node.js 20.9 or later works:
 `npm ci && npm run build && npm start` in `web/`, with the same four variables. Vercel's
 free Hobby plan is for non-commercial use under its terms — check them against how Tula
 uses this, and move hosts if needed.
